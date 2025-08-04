@@ -1,0 +1,38 @@
+# === Node / Frontend ===
+node_modules/
+dist/
+*.log
+pnpm-lock.yaml
+.yarn/
+.npm/
+
+# === Vite / Webpack 缓存 ===
+.vite/
+.cache/
+
+# === Rust / Cargo ===
+/target/
+Cargo.lock
+
+# === Tauri build output ===
+/src-tauri/target/
+src-tauri/Cargo.lock
+/src-tauri/.cargo/
+src-tauri/.output/
+
+# === IDE / Editor files ===
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# === System files ===
+.DS_Store
+Thumbs.db
+
+# === Env / Secrets ===
+.env
+.env.*
+
+# === OS 运行中生成的文件（例如 Mac） ===
+*.DS_Store
