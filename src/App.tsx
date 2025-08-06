@@ -1,35 +1,55 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+// 全局 CSS 已在 main.tsx 导入，这里不再需要导入 "./styles.css"
+import './i18n';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const checkToken = async () => {
+      try {
+        const token = await invoke('get_auth_token');
+        if (token) {
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        console.error("Failed to check token:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkToken();
+  }, []);
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+  };
+
+  if (isLoading) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <div className="text-lg font-medium text-gray-600">Loading...</div>
+        </div>
+    );
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="h-screen bg-gray-100 dark:bg-gray-900">
+      {isAuthenticated ? (
+        <Dashboard onLogout={handleLogout} />
+      ) : (
+        <Login onLoginSuccess={handleLoginSuccess} />
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;
