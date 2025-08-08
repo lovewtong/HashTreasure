@@ -10,20 +10,31 @@ const ParticlesBackground: React.FC = () => {
     if (!ctx) return;
 
     let particlesArray: Particle[];
+    let animationFrameId: number;
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // 设置 canvas 尺寸
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      mouse.radius = (canvas.height / 120) * (canvas.width / 120);
+      init();
+    };
 
     const mouse = {
       x: null as number | null,
       y: null as number | null,
-      radius: (canvas.height / 120) * (canvas.width / 120),
+      radius: (window.innerHeight / 120) * (window.innerWidth / 120),
     };
 
-    window.addEventListener('mousemove', (event) => {
+    const handleMouseMove = (event: MouseEvent) => {
       mouse.x = event.x;
       mouse.y = event.y;
-    });
+    };
+
+    const handleMouseOut = () => {
+      mouse.x = null;
+      mouse.y = null;
+    };
 
     class Particle {
       x: number;
@@ -42,14 +53,17 @@ const ParticlesBackground: React.FC = () => {
         this.color = color;
       }
 
+      // 绘制单个粒子
       draw() {
         ctx!.beginPath();
         ctx!.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
-        ctx!.fillStyle = '#00aaff';
+        ctx!.fillStyle = this.color;
         ctx!.fill();
       }
 
+      // 更新粒子位置和交互
       update() {
+        // 边界检测
         if (this.x > canvas.width || this.x < 0) {
           this.directionX = -this.directionX;
         }
@@ -57,29 +71,35 @@ const ParticlesBackground: React.FC = () => {
           this.directionY = -this.directionY;
         }
 
-        let dx = (mouse.x ?? -1000) - this.x;
-        let dy = (mouse.y ?? -1000) - this.y;
-        let distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < mouse.radius + this.size) {
-          if (mouse.x! < this.x && this.x < canvas.width - this.size * 10) {
-            this.x += 5;
-          }
-          if (mouse.x! > this.x && this.x > this.size * 10) {
-            this.x -= 5;
-          }
-          if (mouse.y! < this.y && this.y < canvas.height - this.size * 10) {
-            this.y += 5;
-          }
-          if (mouse.y! > this.y && this.y > this.size * 10) {
-            this.y -= 5;
-          }
+        // 鼠标交互
+        if (mouse.x !== null && mouse.y !== null) {
+            let dx = mouse.x - this.x;
+            let dy = mouse.y - this.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < mouse.radius + this.size) {
+              if (mouse.x < this.x && this.x < canvas.width - this.size * 10) {
+                this.x += 5;
+              }
+              if (mouse.x > this.x && this.x > this.size * 10) {
+                this.x -= 5;
+              }
+              if (mouse.y < this.y && this.y < canvas.height - this.size * 10) {
+                this.y += 5;
+              }
+              if (mouse.y > this.y && this.y > this.size * 10) {
+                this.y -= 5;
+              }
+            }
         }
+        
+        // 移动粒子
         this.x += this.directionX;
         this.y += this.directionY;
         this.draw();
       }
     }
 
+    // 初始化粒子
     function init() {
       particlesArray = [];
       let numberOfParticles = (canvas.height * canvas.width) / 9000;
@@ -89,32 +109,34 @@ const ParticlesBackground: React.FC = () => {
         let y = (Math.random() * ((innerHeight - size * 2) - (size * 2)) + size * 2);
         let directionX = (Math.random() * 0.4) - 0.2;
         let directionY = (Math.random() * 0.4) - 0.2;
-        let color = '#00aaff';
+        let color = '#00aaff'; // 科技蓝色
         particlesArray.push(new Particle(x, y, directionX, directionY, size, color));
       }
     }
 
+    // 连接粒子
     function connect() {
-        let opacityValue = 1;
-        for (let a = 0; a < particlesArray.length; a++) {
-            for (let b = a; b < particlesArray.length; b++) {
-                let distance = ((particlesArray[a].x - particlesArray[b].x) * (particlesArray[a].x - particlesArray[b].x))
-                             + ((particlesArray[a].y - particlesArray[b].y) * (particlesArray[a].y - particlesArray[b].y));
-                if (distance < (canvas.width/7) * (canvas.height/7)) {
-                    opacityValue = 1 - (distance/20000);
-                    ctx!.strokeStyle = `rgba(0, 170, 255, ${opacityValue})`;
-                    ctx!.lineWidth = 1;
-                    ctx!.beginPath();
-                    ctx!.moveTo(particlesArray[a].x, particlesArray[a].y);
-                    ctx!.lineTo(particlesArray[b].x, particlesArray[b].y);
-                    ctx!.stroke();
-                }
-            }
+      let opacityValue = 1;
+      for (let a = 0; a < particlesArray.length; a++) {
+        for (let b = a; b < particlesArray.length; b++) {
+          let distance = ((particlesArray[a].x - particlesArray[b].x) * (particlesArray[a].x - particlesArray[b].x))
+                       + ((particlesArray[a].y - particlesArray[b].y) * (particlesArray[a].y - particlesArray[b].y));
+          if (distance < (canvas.width/7) * (canvas.height/7)) {
+            opacityValue = 1 - (distance/20000);
+            ctx!.strokeStyle = `rgba(0, 170, 255, ${opacityValue})`;
+            ctx!.lineWidth = 1;
+            ctx!.beginPath();
+            ctx!.moveTo(particlesArray[a].x, particlesArray[a].y);
+            ctx!.lineTo(particlesArray[b].x, particlesArray[b].y);
+            ctx!.stroke();
+          }
         }
+      }
     }
 
+    // 动画循环
     function animate() {
-      requestAnimationFrame(animate);
+      animationFrameId = requestAnimationFrame(animate);
       ctx!.clearRect(0, 0, innerWidth, innerHeight);
 
       for (let i = 0; i < particlesArray.length; i++) {
@@ -122,30 +144,25 @@ const ParticlesBackground: React.FC = () => {
       }
       connect();
     }
-    
-    window.addEventListener('resize', () => {
-        canvas.width = innerWidth;
-        canvas.height = innerHeight;
-        mouse.radius = (canvas.height / 120) * (canvas.width / 120);
-        init();
-    });
 
-    window.addEventListener('mouseout', () => {
-        mouse.x = null;
-        mouse.y = null;
-    });
+    // 添加事件监听
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseout', handleMouseOut);
 
-    init();
+    resizeCanvas();
     animate();
 
+    // 清理函数
     return () => {
-        window.removeEventListener('mousemove', () => {});
-        window.removeEventListener('resize', () => {});
-        window.removeEventListener('mouseout', () => {});
-    }
+      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseout', handleMouseOut);
+      cancelAnimationFrame(animationFrameId);
+    };
   }, []);
 
-  return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full -z-10"></canvas>;
+  return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full -z-10 bg-black"></canvas>;
 };
 
 export default ParticlesBackground;

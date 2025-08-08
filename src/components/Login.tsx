@@ -1,185 +1,231 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import { User, KeyRound, ShieldCheck, Mail, AtSign } from 'lucide-react';
+import { User, KeyRound, Mail, AtSign, Eye, EyeOff } from 'lucide-react';
+import HashPowerBackground from './HashPowerBackground';
+import '../i18n'; // 修正了导入路径
 
-// Props an interface for the component
 interface LoginProps {
   onLoginSuccess: () => void;
 }
 
-// Defines the current view mode
+type AuthMode = 'password' | 'code';
 type ViewMode = 'login' | 'register';
 
-/**
- * A commercial-grade, enterprise-ready authentication component.
- * Built upon the "Carbon & Amber" design system for clarity, professionalism, and user trust.
- * Implements all 12 specified UI/UX principles.
- *
- * @param {LoginProps} props - The component props.
- * @returns {React.ReactElement} The rendered authentication component.
- */
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
-  // --- STATE MANAGEMENT ---
   const [viewMode, setViewMode] = useState<ViewMode>('login');
-  
-  // State for Login form - Principle: Control & Forgiveness (Separated state prevents data collision)
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  
-  // State for Register form
-  const [regUsername, setRegUsername] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regCode, setRegCode] = useState('');
-
-  // Common UI State for feedback
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('password');
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [sendingCode, setSendingCode] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
-  // --- EFFECTS ---
-  // Manages the countdown timer for the "send code" button
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: any;
     if (countdown > 0) {
-      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    } else if (isSendingCode) {
-      setIsSendingCode(false);
+      timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    } else if (sendingCode) {
+      setSendingCode(false);
     }
     return () => clearTimeout(timer);
-  }, [countdown, isSendingCode]);
+  }, [countdown, sendingCode]);
 
-  // --- HANDLERS ---
-  const handleViewChange = (mode: ViewMode) => {
-    setError(null); // Clear errors on view change
-    setIsLoading(false);
-    setViewMode(mode);
-  };
+  const isValidEmail = (v: string) => /\S+@\S+\.\S+/.test(v);
 
   const handleSendCode = async () => {
-    if (!regEmail || !regEmail.includes('@')) {
-      setError('请输入有效的邮箱地址');
+    setError(null);
+    const targetEmail = viewMode === 'login' ? email : (viewMode === 'register' ? email : '');
+    if (!isValidEmail(targetEmail)) {
+      setError(t('errorInvalidEmail'));
       return;
     }
-    setError(null);
-    setIsSendingCode(true);
+    setSendingCode(true);
     try {
-      await invoke('send_code', { email: regEmail, type: 'register' });
+      await invoke('send_code', { email: targetEmail, type: 'login_or_register' });
       setCountdown(60);
-    } catch (err) {
-      setError(err as string);
-      setIsSendingCode(false);
+    } catch (e: any) {
+      setError(t(e?.message ?? 'errorSendFailed'));
+      setSendingCode(false);
     }
   };
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError(null);
-    setIsLoading(true);
+    if (!isValidEmail(email)) {
+      setError(t('errorInvalidEmail'));
+      return;
+    }
+    if (authMode === 'password' && !password) {
+      setError(t('errorEnterPassword'));
+      return;
+    }
+    if (authMode === 'code' && !code) {
+      setError(t('errorEnterCode'));
+      return;
+    }
+    setBusy(true);
     try {
-      await invoke('login', { username: loginUsername, password: loginPassword });
+      if (authMode === 'password') {
+        await invoke('login', { username: email, password });
+      } else {
+        await invoke('login_by_code', { email, code });
+      }
       onLoginSuccess();
-    } catch (err) {
-      setError(err as string);
+    } catch (e: any) {
+      setError(t(e?.message ?? 'errorLoginFailed'));
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
   };
-  
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+
+  const handleRegister = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError(null);
-    setIsLoading(true);
+    if (!username) { setError(t('errorEnterUsername')); return; }
+    if (!isValidEmail(email)) { setError(t('errorInvalidEmail')); return; }
+    if (!password) { setError(t('errorEnterPassword')); return; }
+    if (!code) { setError(t('errorEnterEmailCode')); return; }
+    
+    setBusy(true);
     try {
-      await invoke('register', { username: regUsername, password: regPassword, email: regEmail, code: regCode });
+      await invoke('register', { username, password, email, code });
       onLoginSuccess();
-    } catch (err) {
-      setError(err as string);
+    } catch (e: any) {
+      setError(t(e?.message ?? 'errorRegisterFailed'));
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
   };
 
-  // --- RENDER LOGIC: Componentization Principle ---
-  const InputField = ({ id, type, placeholder, value, onChange, icon, children }: { id: string, type: string, placeholder: string, value: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, icon: React.ReactNode, children?: React.ReactNode }) => (
-    <div className="relative group">
-      <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-gray-500 transition-colors duration-300 group-focus-within:text-amber-400">
-        {icon}
-      </div>
-      <input
-        id={id}
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        className="w-full py-3 pl-12 pr-4 text-gray-200 bg-gray-900/50 border border-gray-700 rounded-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-transparent transition-all duration-300"
-        required
-      />
-      {children}
-    </div>
-  );
-
-  const LoginForm = () => (
-    <form className="space-y-6" onSubmit={handleLoginSubmit}>
-      <InputField id="login-username" type="text" placeholder={t('usernameOrEmail')} value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} icon={<User size={18} />} />
-      <InputField id="login-password" type="password" placeholder={t('password')} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} icon={<KeyRound size={18} />} />
-      <div className="text-right">
-        <a href="#" className="text-sm font-medium text-gray-400 hover:text-amber-400 hover:underline transition-colors">{t('forgotPassword')}</a>
-      </div>
-      <AuthButton isLoading={isLoading} text={t('signIn')} loadingText={t('loggingIn')} />
-    </form>
-  );
-
-  const RegisterForm = () => (
-    <form className="space-y-6" onSubmit={handleRegisterSubmit}>
-      <InputField id="reg-username" type="text" placeholder={t('username')} value={regUsername} onChange={(e) => setRegUsername(e.target.value)} icon={<AtSign size={18} />} />
-      <InputField id="reg-email" type="email" placeholder={t('email')} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} icon={<Mail size={18} />} />
-      <InputField id="reg-password" type="password" placeholder={t('password')} value={regPassword} onChange={(e) => setRegPassword(e.target.value)} icon={<KeyRound size={18} />} />
-      <InputField id="reg-code" type="text" placeholder={t('enterCode')} value={regCode} onChange={(e) => setRegCode(e.target.value)} icon={<ShieldCheck size={18} />}>
-        <button type="button" onClick={handleSendCode} disabled={isSendingCode || countdown > 0} className="absolute text-sm font-semibold text-amber-400 hover:text-amber-300 right-4 top-1/2 -translate-y-1/2 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors">
-          {countdown > 0 ? t('resendIn', { count: countdown }) : t('sendCode')}
-        </button>
-      </InputField>
-      <AuthButton isLoading={isLoading} text={t('register')} loadingText={t('registering')} />
-    </form>
-  );
-
-  const AuthButton = ({ isLoading, text, loadingText }: { isLoading: boolean, text: string, loadingText: string }) => (
-    <button type="submit" disabled={isLoading} className="group relative flex items-center justify-center w-full px-4 py-3 font-semibold text-gray-900 bg-amber-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-300 overflow-hidden">
-      <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-amber-400 to-amber-300 transition-all duration-300 ease-in-out opacity-100 group-hover:opacity-0"></span>
-      <span className="relative flex items-center">
-        {isLoading && <div className="w-5 h-5 mr-3 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>}
-        {isLoading ? loadingText : text}
-      </span>
-    </button>
-  );
+  const toggleLang = () => {
+    const newLng = i18n.language === 'zh' ? 'en' : 'zh';
+    i18n.changeLanguage(newLng);
+  };
 
   return (
-    <div className="flex items-center justify-center min-h-screen px-4 py-12 bg-[#121212] font-sans">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(255,193,7,0.15),rgba(255,255,255,0))]"></div>
-      <div className="relative z-10 w-full max-w-md">
-        {/* Principle: Hierarchy - The card is the central focus. */}
-        <div className="p-8 bg-gray-900/70 backdrop-blur-xl border border-gray-700/50 rounded-2xl shadow-2xl shadow-black/50">
-          <h1 className="text-3xl font-bold text-center text-gray-100">
-            {viewMode === 'login' ? t('userLogin') : t('signUp')}
-          </h1>
-          
-          {viewMode === 'login' ? <LoginForm /> : <RegisterForm />}
-        </div>
-        
-        {/* Principle: Predictability - The toggle between login/register is in a common location. */}
-        <div className="mt-6 text-sm text-center">
-          <span className="text-gray-500">
-            {viewMode === 'login' ? t('noAccount') : t('backToLogin')}
-          </span>
-          <button onClick={() => handleViewChange(viewMode === 'login' ? 'register' : 'login')} className="ml-2 font-semibold text-amber-400 hover:underline">
-            {viewMode === 'login' ? t('signUp') : t('userLogin')}
-          </button>
-        </div>
+    // 【关键修正】: 恢复 bg-black，确保有一个坚实的底色，并添加 overflow-hidden
+    <div className="relative min-h-screen w-full bg-black text-gray-100 font-sans overflow-hidden">
+      {/* HashPowerBackground 现在是页面的底层背景。它自身的样式应包含 z-index: -10 */}
+      <HashPowerBackground />
+
+      {/* 【关键修正】: 所有UI内容都放在一个 z-10 的容器里，确保它们在背景之上 */}
+      <div className="relative z-10">
+        <header className="w-full max-w-6xl mx-auto px-4 pt-6 flex items-center justify-between">
+          <div className="text-lg font-bold tracking-wide select-none">{t('appName')}</div>
+          <div className="flex items-center gap-3">
+            <button
+              aria-label={t('switchLanguage')}
+              onClick={toggleLang}
+              className="text-sm rounded-md px-3 py-1 bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              {i18n.language === 'zh' ? '中 / EN' : 'EN / 中'}
+            </button>
+          </div>
+        </header>
+
+        <main className="flex flex-col items-center justify-center px-4 py-12">
+          <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+            <section className="order-2 md:order-1 px-4 md:px-8">
+              <h2 className="text-2xl md:text-3xl font-extrabold leading-tight mb-4">{t('tagline')}</h2>
+              <p className="text-sm md:text-base text-gray-300 mb-6">{t('description')}</p>
+              <div className="mt-4 p-4 rounded-xl bg-white/5 backdrop-blur-md border border-white/10 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-gray-300">{t('currentNetworkPower')}</div>
+                    <div className="text-xl font-semibold mt-1">1.24 PH/s</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-300 text-right">{t('hourlyEarnings')}</div>
+                    <div className="text-lg font-semibold mt-1">0.0024 CAL</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="order-1 md:order-2 px-4 md:px-8">
+              <div className="mx-auto max-w-md">
+                <div className="p-6 rounded-2xl bg-black/30 backdrop-blur-lg border border-white/10 shadow-2xl">
+                  <h3 className="text-xl font-semibold mb-4">{viewMode === 'login' ? t('loginTitle') : t('registerTitle')}</h3>
+
+                  {viewMode === 'login' && (
+                    <div className="mb-4 flex gap-2" role="tablist" aria-label={t('authMethodSwitch')}>
+                      <button role="tab" aria-selected={authMode === 'password'} onClick={() => setAuthMode('password')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 ${authMode === 'password' ? 'bg-cyan-600/70 text-white' : 'bg-white/10 text-gray-200'}`}>
+                        {t('passwordLogin')}
+                      </button>
+                      <button role="tab" aria-selected={authMode === 'code'} onClick={() => setAuthMode('code')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 ${authMode === 'code' ? 'bg-cyan-600/70 text-white' : 'bg-white/10 text-gray-200'}`}>
+                        {t('codeLogin')}
+                      </button>
+                    </div>
+                  )}
+
+                  <form onSubmit={viewMode === 'login' ? handleLogin : handleRegister} className="space-y-4" aria-live="polite">
+                    {viewMode === 'register' && (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><User size={18} /></div>
+                        <input aria-label={t('usernamePlaceholder')} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('usernamePlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" minLength={3} />
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><Mail size={18} /></div>
+                      <input aria-label={t('emailPlaceholder')} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('emailPlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required />
+                    </div>
+
+                    {(authMode === 'password' || viewMode === 'register') && (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><KeyRound size={18} /></div>
+                        <input aria-label={t('passwordPlaceholder')} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('passwordPlaceholder')} className="w-full pl-12 pr-10 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required minLength={6} />
+                        <button type="button" aria-label={showPassword ? t('togglePasswordHide') : t('togglePasswordShow')} onClick={() => setShowPassword((s) => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded focus:outline-none focus-visible:ring-2">
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    )}
+
+                    {(authMode === 'code' || viewMode === 'register') && (
+                      <div className="flex gap-3 items-center">
+                        <div className="relative flex-grow">
+                          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><AtSign size={18} /></div>
+                          <input aria-label={t('codePlaceholder')} value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('codePlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required />
+                        </div>
+                        <button type="button" onClick={handleSendCode} disabled={sendingCode || countdown > 0} className="px-4 py-2 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 bg-white/10 hover:bg-white/20 disabled:opacity-60">
+                          {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
+                        </button>
+                      </div>
+                    )}
+
+                    <div aria-live="assertive" className="min-h-[1.25rem]">
+                      {error && <div role="alert" className="text-sm text-red-400">{error}</div>}
+                    </div>
+
+                    <div className="space-y-2">
+                      <button type="submit" disabled={busy} className="w-full py-2 rounded-lg font-semibold text-white bg-cyan-600/90 hover:bg-cyan-600 hover:shadow-lg disabled:opacity-60 focus:outline-none focus-visible:ring-2">
+                        {busy ? t(viewMode === 'login' ? 'loggingIn' : 'registering') : t(viewMode === 'login' ? 'signIn' : 'register')}
+                      </button>
+
+                      <div className="flex items-center justify-between text-sm text-gray-300">
+                        <button type="button" onClick={() => setViewMode(viewMode === 'login' ? 'register' : 'login')} className="hover:underline">
+                          {viewMode === 'login' ? t('noAccountRegister') : t('hasAccountLogin')}
+                        </button>
+
+                        {viewMode === 'login' && (
+                          <a href="#" className="text-sm hover:underline">{t('forgotPassword')}</a>
+                        )}
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
       </div>
     </div>
   );
