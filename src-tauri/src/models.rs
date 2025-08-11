@@ -46,11 +46,14 @@ pub struct UserLoginVO {
 /// 用户注册请求体 (Data Transfer Object)
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[derive(Deserialize)]
 pub struct UserRegisterDTO {
+    #[serde(rename = "username")]
     pub user_name: String,
+    #[serde(rename = "password")]
     pub user_password: String,
-    pub email: String,
-    pub code: String,
-    // 根据API文档，此字段为必须，我们先给一个默认值
-    pub reg_into: String, 
+    pub email: String,  // Already matches "email"
+    pub code: String,   // Already matches "code"
+    #[serde(rename = "regInto")]  // If JS sends "reg_into", adjust; otherwise, if it's hardcoded in Rust, no rename needed
+    pub reg_into: String,
 }

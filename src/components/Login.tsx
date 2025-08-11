@@ -69,9 +69,35 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [countdown, setCountdown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
 
-  const loginPasswordForm = useForm<LoginPasswordForm>({ resolver: zodResolver(loginPasswordSchema), mode: 'onChange' });
-  const loginCodeForm = useForm<LoginCodeForm>({ resolver: zodResolver(loginCodeSchema), mode: 'onChange' });
-  const registerForm = useForm<RegisterForm>({ resolver: zodResolver(registerSchema), mode: 'onChange' });
+  // **FIX**: 为所有 useForm 添加 defaultValues 来防止初始加载时出现 undefined 验证错误
+  const loginPasswordForm = useForm<LoginPasswordForm>({
+    resolver: zodResolver(loginPasswordSchema),
+    mode: 'onChange',
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+  });
+
+  const loginCodeForm = useForm<LoginCodeForm>({
+    resolver: zodResolver(loginCodeSchema),
+    mode: 'onChange',
+    defaultValues: {
+      email: '',
+      code: '',
+    },
+  });
+
+  const registerForm = useForm<RegisterForm>({
+    resolver: zodResolver(registerSchema),
+    mode: 'onChange',
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+      code: '',
+    },
+  });
 
   const isLogin = viewMode === 'login';
 
@@ -84,18 +110,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   }, [countdown]);
 
   const handleSendCode = async () => {
-    // 根据当前是登录还是注册，选择正确的表单实例
     const form = isLogin ? loginCodeForm : registerForm;
-
-    // **FIX**: 先触发表单对 'email' 字段的验证
     const isEmailValid = await form.trigger('email');
 
-    // 如果验证失败，则直接终止函数。toast 会由 getErrorMessage 自动处理。
     if (!isEmailValid) {
       return;
     }
 
-    // 验证成功后，再获取邮箱的值
     const email = form.getValues().email;
 
     setSendingCode(true);
