@@ -1,33 +1,27 @@
+// src-tauri/src/main.rs
+
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use tauri::{Manager};
-use tauri_plugin_store::{PluginBuilder};
-
 mod api;
-mod models;
+mod commands;
 mod error;
+mod models;
 
-// 主函数
 fn main() {
-    env_logger::init();
+    let api_client = api::ApiClient::new();
 
     tauri::Builder::default()
-        .manage(request::Client::new())
-        .plugin(PluginBuilder::default().build())
+        // 1. 使用 .plugin() 来正确地初始化和注册 tauri-plugin-store
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(api_client)
         .invoke_handler(tauri::generate_handler![
-            api::login,
-            api::get_auth_token,
-            api::logout,
-            api::send_code,      // <-- 注册发送验证码命令
-            api::login_by_code,  // <-- 注册验证码登录命令
-            api::register,
+            commands::login,
+            commands::login_by_code,
+            commands::register,
+            commands::send_code,
+            commands::get_auth_token,
+            commands::logout
         ])
-        .setup(|app| {
-            let window = app.get_window("main").unwrap();
-            let _ = window.start_dragging();
-            Ok(())
-        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

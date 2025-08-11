@@ -41,7 +41,6 @@ interface LoginProps {
 type AuthMode = 'password' | 'code';
 type ViewMode = 'login' | 'register';
 
-// A more generic type for the input component props
 interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   icon: React.ReactNode;
   error?: boolean;
@@ -70,7 +69,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [countdown, setCountdown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
 
-  // React Hook Form instances
   const loginPasswordForm = useForm<LoginPasswordForm>({ resolver: zodResolver(loginPasswordSchema), mode: 'onChange' });
   const loginCodeForm = useForm<LoginCodeForm>({ resolver: zodResolver(loginCodeSchema), mode: 'onChange' });
   const registerForm = useForm<RegisterForm>({ resolver: zodResolver(registerSchema), mode: 'onChange' });
@@ -81,25 +79,27 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     let timer: number;
     if (countdown > 0) {
       timer = window.setTimeout(() => setCountdown((c) => c - 1), 1000);
-    } else if (sendingCode) {
-      setSendingCode(false);
     }
     return () => clearTimeout(timer);
-  }, [countdown, sendingCode]);
+  }, [countdown]);
 
   const handleSendCode = async () => {
+    // 根据当前是登录还是注册，选择正确的表单实例
     const form = isLogin ? loginCodeForm : registerForm;
-    const email = form.getValues('email');
-    
-    const isValid = await form.trigger('email');
-    if (!isValid) {
-        toast.error(t('errorInvalidEmail'));
-        return;
+
+    // **FIX**: 先触发表单对 'email' 字段的验证
+    const isEmailValid = await form.trigger('email');
+
+    // 如果验证失败，则直接终止函数。toast 会由 getErrorMessage 自动处理。
+    if (!isEmailValid) {
+      return;
     }
-    
+
+    // 验证成功后，再获取邮箱的值
+    const email = form.getValues().email;
+
     setSendingCode(true);
     toast.loading(t('sending'), { id: 'code-toast' });
-
     try {
       await invoke('send_code', { email, type: isLogin ? 'login' : 'register' });
       toast.success(t('sendCodeSuccess'), { id: 'code-toast' });
@@ -163,7 +163,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const { isSubmitting: isLoginPasswordSubmitting, errors: loginPasswordErrors } = loginPasswordForm.formState;
   const { isSubmitting: isLoginCodeSubmitting, errors: loginCodeErrors } = loginCodeForm.formState;
   const { isSubmitting: isRegisterSubmitting, errors: registerErrors } = registerForm.formState;
-
   const isSubmitting = isLoginPasswordSubmitting || isLoginCodeSubmitting || isRegisterSubmitting;
 
   const renderLoginForm = () => (
@@ -177,13 +176,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         </button>
       </div>
       <AnimatePresence mode="wait">
-        <motion.div
-          key={authMode}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
-        >
+        <motion.div key={authMode} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
           {authMode === 'password' ? (
             <div className="space-y-4">
               <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...loginPasswordForm.register('email')} error={!!loginPasswordErrors.email} />
@@ -251,88 +244,47 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const errorMessage = getErrorMessage();
 
   return (
-    // **FIX**: 使用一个根 div 来包裹所有内容，确保清晰的 DOM 结构
-    <div className="min-h-screen w-full bg-transparent">
+    <div className="relative min-h-screen w-full overflow-hidden">
       <HashPowerBackground />
-      <Toaster position="top-center" toastOptions={{
-        className: 'bg-gray-800 text-white border border-white/20',
-      }} />
+      <Toaster position="top-center" toastOptions={{ className: 'bg-gray-800 text-white border border-white/20' }} />
       
-      {/* **FIX**: 这个 wrapper 使用 relative 和 z-10，确保它在背景之上 */}
       <div className="relative z-10 flex flex-col min-h-screen text-gray-100 font-sans">
         <header className="w-full max-w-7xl mx-auto px-6 pt-6 flex items-center justify-between">
           <div className="text-xl font-bold tracking-wider select-none text-white/90">{t('appName')}</div>
-          <button
-            aria-label={t('switchLanguage')}
-            onClick={toggleLang}
-            className="text-sm rounded-md px-3 py-1.5 bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 transition-colors"
-          >
+          <button aria-label={t('switchLanguage')} onClick={toggleLang} className="text-sm rounded-md px-3 py-1.5 bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 transition-colors">
             {i18n.language === 'zh' ? 'EN' : '中'}
           </button>
         </header>
 
         <main className="flex-grow flex items-center justify-center p-4">
           <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-            <motion.section 
-              initial={{ opacity: 0, x: -50 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.7, delay: 0.2 }}
-              className="order-2 md:order-1 text-center md:text-left"
-            >
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight text-white tracking-wide">
-                {t('tagline')}
-              </h2>
-              <p className="text-base md:text-lg text-gray-300 mt-6 max-w-lg mx-auto md:mx-0">
-                {t('description')}
-              </p>
+            <motion.section initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.7, delay: 0.2 }} className="order-2 md:order-1 text-center md:text-left">
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight text-white tracking-wide">{t('tagline')}</h2>
+              <p className="text-base md:text-lg text-gray-300 mt-6 max-w-lg mx-auto md:mx-0">{t('description')}</p>
             </motion.section>
 
-            <motion.section 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-              className="order-1 md:order-2"
-            >
+            <motion.section initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, delay: 0.4 }} className="order-1 md:order-2">
               <div className="w-full max-w-sm mx-auto p-8 rounded-2xl bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl shadow-cyan-500/10">
-                <h3 className="text-2xl font-semibold mb-6 text-center text-white/90">
-                  {isLogin ? t('loginTitle') : t('registerTitle')}
-                </h3>
-                
+                <h3 className="text-2xl font-semibold mb-6 text-center text-white/90">{isLogin ? t('loginTitle') : t('registerTitle')}</h3>
                 <form onSubmit={getSubmitHandler()} className="space-y-4" noValidate>
                   {isLogin ? renderLoginForm() : renderRegisterForm()}
-                  
                   <AnimatePresence>
                     {errorMessage && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div role="alert" className="text-sm text-red-400 text-center pt-2">
-                          {errorMessage}
-                        </div>
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                        <div role="alert" className="text-sm text-red-400 text-center pt-2">{errorMessage}</div>
                       </motion.div>
                     )}
                   </AnimatePresence>
-
                   <div className="pt-4 space-y-3">
                     <button type="submit" disabled={isSubmitting} className="w-full py-3 rounded-lg font-semibold text-white bg-cyan-600 hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 transition-all duration-300 flex items-center justify-center">
                       {isSubmitting && <LoaderCircle className="animate-spin mr-2" size={20} />}
                       {isSubmitting ? t(isLogin ? 'loggingIn' : 'registering') : t(isLogin ? 'signIn' : 'register')}
                     </button>
                     <div className="flex items-center justify-between text-sm text-gray-400">
-                      <button type="button" onClick={() => { 
-                          setViewMode(isLogin ? 'register' : 'login'); 
-                          loginPasswordForm.reset();
-                          loginCodeForm.reset();
-                          registerForm.reset();
-                        }} className="hover:underline hover:text-white transition-colors">
+                      <button type="button" onClick={() => { setViewMode(isLogin ? 'register' : 'login'); loginPasswordForm.reset(); loginCodeForm.reset(); registerForm.reset(); }} className="hover:underline hover:text-white transition-colors">
                         {isLogin ? t('noAccountRegister') : t('hasAccountLogin')}
                       </button>
-                      {isLogin && (
-                        <a href="#" className="text-sm hover:underline hover:text-white transition-colors">{t('forgotPassword')}</a>
-                      )}
+                      {isLogin && (<a href="#" className="text-sm hover:underline hover:text-white transition-colors">{t('forgotPassword')}</a>)}
                     </div>
                   </div>
                 </form>

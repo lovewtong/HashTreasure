@@ -1,253 +1,85 @@
-use tauri::{AppHandle, State, Manager};
-use tauri_plugin_store::{Store, StoreBuilder};
-use std::path::PathBuf;
-use crate::models::{UserLoginDTO, ApiResponse, UserLoginVO};
+// src-tauri/src/api.rs
+
 use crate::error::AppError;
+use crate::models::{ApiResponse, UserLoginVO};
+use reqwest::{Client, Response};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-const API_BASE_URL: &str = "https://suanlibao.xyz"; // 请替换为您的 API Base URL
+const API_BASE_URL: &str = "https://suanlibao.xyz"; // 你的 API 地址
 
-/// 登录命令，由前端调用
-#[tauri::command]
-pub async fn login(app: AppHandle, username: String, password: String) -> Result<String, AppError> {
-    log::info!("Attempting to login for user: {}", username);
+#[derive(Debug)]
+pub struct ApiClient {
+    client: Client,
+}
 
-    let client = reqwest::Client::new();
-    let login_payload = UserLoginDTO {
-        userName: username.clone(),
-        userPassword: password,
-    };
+impl ApiClient {
+    pub fn new() -> Self {
+        ApiClient {
+            client: Client::new(),
+        }
+    }
 
-    let res = client
-        .post(format!("{}/api/v1/user/login", API_BASE_URL))
-        .json(&login_payload)
-        .send()
-        .await
-        .map_err(|e| {
-            log::error!("Network request failed: {}", e);
-            AppError::NetworkError
-        })?;
+    async fn handle_response<T: DeserializeOwned>(
+        &self,
+        response: Response,
+    ) -> Result<T, AppError> {
+        let status = response.status();
+        if status.is_success() {
+            let api_response = response.json::<ApiResponse<T>>().await.map_err(|e| {
+                log::error!("Failed to parse response JSON: {}", e);
+                AppError::JsonParseError
+            })?;
 
-    if res.status().is_success() {
-        let api_response = res.json::<ApiResponse<UserLoginVO>>().await.map_err(|e| {
-            log::error!("Failed to parse login response: {}", e);
-            AppError::JsonParseError
-        })?;
-
-        if api_response.code == 0 {
-            if let Some(token) = api_response.data.and_then(|d| d.token) {
-                log::info!("Login successful for user: {}", username);
-                // 存储 token
-                save_token(&app, &token)?;
-                Ok("Login successful".to_string())
+            if api_response.code == 0 {
+                match api_response.data {
+                    Some(data) => Ok(data),
+                    None => {
+                        log::error!("API success code, but data is null.");
+                        Err(AppError::ApiError("Response data is null".to_string()))
+                    }
+                }
             } else {
-                log::warn!("Login API success, but no token in response for user: {}", username);
-                Err(AppError::ApiError("登录成功但未返回Token".to_string()))
+                log::warn!("API returned an error. Code: {}, Message: {}", api_response.code, api_response.message);
+                Err(AppError::from_api_code(api_response.code))
             }
         } else {
-            log::warn!("Login failed for user: {}. API Code: {}, Message: {}", username, api_response.code, api_response.message);
-            // 根据错误码映射本地化提示
-            Err(AppError::from_api_code(api_response.code))
+            let error_body = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            log::error!("HTTP request failed with status: {}. Body: {}", status, error_body);
+            Err(AppError::NetworkError)
         }
-    } else {
-        let status = res.status();
-        let error_body = res.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        log::error!("Login API returned non-success status: {}. Body: {}", status, error_body);
-        Err(AppError::ApiError(format!("服务器错误: {}", status)))
     }
-}
 
-/// 从本地存储中获取 Token
-#[tauri::command]
-pub async fn get_auth_token(app: AppHandle) -> Result<Option<String>, AppError> {
-    let mut store = get_store(app)?;
-    if let Some(token_value) = store.get("auth_token") {
-        Ok(Some(token_value.as_str().unwrap().to_string()))
-    } else {
-        Ok(None)
+    async fn post<T: Serialize, R: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &T,
+    ) -> Result<R, AppError> {
+        let response = self
+            .client
+            .post(format!("{}{}", API_BASE_URL, path))
+            .json(body)
+            .send()
+            .await
+            .map_err(|_| AppError::NetworkError)?;
+
+        self.handle_response(response).await
     }
-}
 
-
-/// 获取持久化存储实例
-fn get_store(app: AppHandle) -> Result<Store, AppError> {
-    let path = app.path_resolver()
-        .app_config_dir()
-        .ok_or(AppError::PathError)?
-        .join("store.json");
-    StoreBuilder::new(app, path).build().map_err(|_| AppError::StoreError)
-}
-
-/// 保存 Token 到本地
-fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
-    let mut store = get_store(app.clone())?;
-    store.insert("auth_token".to_string(), serde_json::Value::String(token.to_string()))
-         .map_err(|_| AppError::StoreError)?;
-    store.save().map_err(|_| AppError::StoreError)
-}
-
-
-/// 【新增】邮箱验证码登录命令
-#[tauri::command]
-pub async fn login_by_code(app: AppHandle, email: String, code: String) -> Result<String, AppError> {
-    log::info!("Attempting to login with code for email: {}", email);
-
-    let client = reqwest::Client::new();
-    let payload = EmailCodeLoginDTO {
-        email: email.clone(),
-        code,
-    };
-
-    let res = client
-        .post(format!("{}/api/v1/user/login-by-code", API_BASE_URL))
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|_| AppError::NetworkError)?;
-    
-    if res.status().is_success() {
-        let api_response = res.json::<ApiResponse<UserLoginVO>>().await.map_err(|_| AppError::JsonParseError)?;
-        if api_response.code == 0 {
-            if let Some(token) = api_response.data.and_then(|d| d.token) {
-                log::info!("Login with code successful for email: {}", email);
-                save_token(&app, &token)?;
-                Ok("Login successful".to_string())
-            } else {
-                Err(AppError::ApiError("登录成功但未返回Token".to_string()))
-            }
-        } else {
-            Err(AppError::from_api_code(api_response.code))
-        }
-    } else {
-        Err(AppError::ApiError("服务器错误".to_string()))
+    // 具体的 API 调用实现
+    pub async fn login(&self, body: &impl Serialize) -> Result<UserLoginVO, AppError> {
+        self.post("/api/v1/user/login", body).await
     }
-}
 
-
-#[tauri::command]
-pub async fn login(app: AppHandle, username: String, password: String) -> Result<String, AppError> {
-    log::info!("Attempting to login for user: {}", username);
-
-    let client = reqwest::Client::new();
-    let login_payload = UserLoginDTO {
-        userName: username.clone(),
-        userPassword: password,
-    };
-
-    let res = client
-        .post(format!("{}/api/v1/user/login", API_BASE_URL))
-        .json(&login_payload)
-        .send()
-        .await
-        .map_err(|e| {
-            log::error!("Network request failed: {}", e);
-            AppError::NetworkError
-        })?;
-
-    if res.status().is_success() {
-        let api_response = res.json::<ApiResponse<UserLoginVO>>().await.map_err(|e| {
-            log::error!("Failed to parse login response: {}", e);
-            AppError::JsonParseError
-        })?;
-
-        if api_response.code == 0 {
-            if let Some(token) = api_response.data.and_then(|d| d.token) {
-                log::info!("Login successful for user: {}", username);
-                save_token(&app, &token)?;
-                Ok("Login successful".to_string())
-            } else {
-                log::warn!("Login API success, but no token in response for user: {}", username);
-                Err(AppError::ApiError("登录成功但未返回Token".to_string()))
-            }
-        } else {
-            log::warn!("Login failed for user: {}. API Code: {}, Message: {}", username, api_response.message);
-            Err(AppError::from_api_code(api_response.code))
-        }
-    } else {
-        let status = res.status();
-        let error_body = res.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        log::error!("Login API returned non-success status: {}. Body: {}", status, error_body);
-        Err(AppError::ApiError(format!("服务器错误: {}", status)))
+    pub async fn login_by_code(&self, body: &impl Serialize) -> Result<UserLoginVO, AppError> {
+        self.post("/api/v1/user/login-by-code", body).await
     }
-}
 
-#[tauri::command]
-pub async fn register(app: AppHandle, username: String, password: String, email: String, code: String) -> Result<String, AppError> {
-    log::info!("Attempting to register new user: {}", username);
-
-    let client = reqwest::Client::new();
-    let payload = UserRegisterDTO {
-        user_name: username.clone(),
-        user_password: password,
-        email: email.clone(),
-        code,
-        reg_into: "client".to_string(), // 标记注册来源为客户端
-    };
-
-    let res = client
-        .post(format!("{}/api/v1/user/register", API_BASE_URL))
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|_| AppError::NetworkError)?;
-
-    if res.status().is_success() {
-        let api_response = res.json::<ApiResponse<UserLoginVO>>().await.map_err(|_| AppError::JsonParseError)?;
-        if api_response.code == 0 {
-            if let Some(token) = api_response.data.and_then(|d| d.token) {
-                log::info!("Registration and login successful for user: {}", username);
-                save_token(&app, &token)?;
-                Ok("Registration successful".to_string())
-            } else {
-                Err(AppError::ApiError("注册成功但未返回Token".to_string()))
-            }
-        } else {
-            log::warn!("Registration failed for {}. API Code: {}, Message: {}", username, api_response.code, api_response.message);
-            Err(AppError::ApiError(api_response.message))
-        }
-    } else {
-        Err(AppError::ApiError("服务器错误".to_string()))
+    pub async fn register(&self, body: &impl Serialize) -> Result<UserLoginVO, AppError> {
+        self.post("/api/v1/user/register", body).await
     }
-}
 
-/// 从本地存储中获取 Token
-#[tauri::command]
-pub async fn get_auth_token(app: AppHandle) -> Result<Option<String>, AppError> {
-    let mut store = get_store(app)?;
-    if let Some(token_value) = store.get("auth_token") {
-        Ok(Some(token_value.as_str().unwrap().to_string()))
-    } else {
-        Ok(None)
+    pub async fn send_code(&self, body: &impl Serialize) -> Result<(), AppError> {
+        self.post("/api/v1/user/send-code", body).await
     }
-}
-
-/// 【新增】登出命令
-#[tauri::command]
-pub async fn logout(app: AppHandle) -> Result<(), AppError> {
-    log::info!("User logging out");
-    remove_token(&app)?;
-    Ok(())
-}
-
-/// 获取持久化存储实例
-fn get_store(app: AppHandle) -> Result<Store, AppError> {
-    let path = app.path_resolver()
-        .app_config_dir()
-        .ok_or(AppError::PathError)?
-        .join("store.json");
-    StoreBuilder::new(app, path).build().map_err(|_| AppError::StoreError)
-}
-
-/// 保存 Token 到本地
-fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
-    let mut store = get_store(app.clone())?;
-    store.insert("auth_token".to_string(), serde_json::Value::String(token.to_string()))
-         .map_err(|_| AppError::StoreError)?;
-    store.save().map_err(|_| AppError::StoreError)
-}
-
-/// 【新增】移除 Token 的辅助函数
-fn remove_token(app: &AppHandle) -> Result<(), AppError> {
-    let mut store = get_store(app.clone())?;
-    store.delete("auth_token".to_string()).map_err(|_| AppError::StoreError)?;
-    store.save().map_err(|_| AppError::StoreError)
 }
