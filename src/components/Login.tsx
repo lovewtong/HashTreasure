@@ -1,9 +1,38 @@
+// src/components/Login.tsx
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import { User, KeyRound, Mail, AtSign, Eye, EyeOff } from 'lucide-react';
+import { User, KeyRound, Mail, AtSign, Eye, EyeOff, LoaderCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useForm, SubmitHandler, FieldErrors } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import toast, { Toaster } from 'react-hot-toast';
+
 import HashPowerBackground from './HashPowerBackground';
-import '../i18n'; // 修正了导入路径
+import '../i18n';
+
+// Zod Schemas for validation
+const loginPasswordSchema = z.object({
+  email: z.string().email({ message: 'errorInvalidEmail' }),
+  password: z.string().min(6, { message: 'errorPasswordMinLength' }),
+});
+
+const loginCodeSchema = z.object({
+  email: z.string().email({ message: 'errorInvalidEmail' }),
+  code: z.string().min(4, { message: 'errorEnterCode' }),
+});
+
+const registerSchema = z.object({
+  username: z.string().min(3, { message: 'errorUsernameMinLength' }),
+  email: z.string().email({ message: 'errorInvalidEmail' }),
+  password: z.string().min(6, { message: 'errorPasswordMinLength' }),
+  code: z.string().min(4, { message: 'errorEnterEmailCode' }),
+});
+
+type LoginPasswordForm = z.infer<typeof loginPasswordSchema>;
+type LoginCodeForm = z.infer<typeof loginCodeSchema>;
+type RegisterForm = z.infer<typeof registerSchema>;
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -12,218 +41,303 @@ interface LoginProps {
 type AuthMode = 'password' | 'code';
 type ViewMode = 'login' | 'register';
 
+// A more generic type for the input component props
+interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  icon: React.ReactNode;
+  error?: boolean;
+}
+
+const FormInput: React.FC<FormInputProps> = ({ icon, error, ...props }) => (
+  <div className="relative">
+    <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
+      {icon}
+    </div>
+    <input
+      {...props}
+      className={`w-full pl-10 pr-3 py-2.5 rounded-lg bg-white/5 border ${
+        error ? 'border-red-500/50' : 'border-white/20'
+      } placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-colors duration-300`}
+    />
+  </div>
+);
+
+
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const { t, i18n } = useTranslation();
-
   const [viewMode, setViewMode] = useState<ViewMode>('login');
   const [authMode, setAuthMode] = useState<AuthMode>('password');
-  const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
+  // React Hook Form instances
+  const loginPasswordForm = useForm<LoginPasswordForm>({ resolver: zodResolver(loginPasswordSchema), mode: 'onChange' });
+  const loginCodeForm = useForm<LoginCodeForm>({ resolver: zodResolver(loginCodeSchema), mode: 'onChange' });
+  const registerForm = useForm<RegisterForm>({ resolver: zodResolver(registerSchema), mode: 'onChange' });
+
+  const isLogin = viewMode === 'login';
+
   useEffect(() => {
-    let timer: any;
+    let timer: number;
     if (countdown > 0) {
-      timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+      timer = window.setTimeout(() => setCountdown((c) => c - 1), 1000);
     } else if (sendingCode) {
       setSendingCode(false);
     }
     return () => clearTimeout(timer);
   }, [countdown, sendingCode]);
 
-  const isValidEmail = (v: string) => /\S+@\S+\.\S+/.test(v);
-
   const handleSendCode = async () => {
-    setError(null);
-    const targetEmail = viewMode === 'login' ? email : (viewMode === 'register' ? email : '');
-    if (!isValidEmail(targetEmail)) {
-      setError(t('errorInvalidEmail'));
-      return;
+    const form = isLogin ? loginCodeForm : registerForm;
+    const email = form.getValues('email');
+    
+    const isValid = await form.trigger('email');
+    if (!isValid) {
+        toast.error(t('errorInvalidEmail'));
+        return;
     }
+    
     setSendingCode(true);
+    toast.loading(t('sending'), { id: 'code-toast' });
+
     try {
-      await invoke('send_code', { email: targetEmail, type: 'login_or_register' });
+      await invoke('send_code', { email, type: isLogin ? 'login' : 'register' });
+      toast.success(t('sendCodeSuccess'), { id: 'code-toast' });
       setCountdown(60);
     } catch (e: any) {
-      setError(t(e?.message ?? 'errorSendFailed'));
+      const errorMessage = typeof e === 'string' ? e : (e as Error).message;
+      toast.error(t(errorMessage ?? 'errorSendFailed'), { id: 'code-toast' });
+    } finally {
       setSendingCode(false);
     }
   };
 
-  const handleLogin = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError(null);
-    if (!isValidEmail(email)) {
-      setError(t('errorInvalidEmail'));
-      return;
-    }
-    if (authMode === 'password' && !password) {
-      setError(t('errorEnterPassword'));
-      return;
-    }
-    if (authMode === 'code' && !code) {
-      setError(t('errorEnterCode'));
-      return;
-    }
-    setBusy(true);
+  const onLoginSubmit: SubmitHandler<LoginPasswordForm | LoginCodeForm> = async (data) => {
+    const toastId = toast.loading(t('loggingIn'));
     try {
       if (authMode === 'password') {
+        const { email, password } = data as LoginPasswordForm;
         await invoke('login', { username: email, password });
       } else {
+        const { email, code } = data as LoginCodeForm;
         await invoke('login_by_code', { email, code });
       }
+      toast.success(t('loginSuccess'), { id: toastId });
       onLoginSuccess();
     } catch (e: any) {
-      setError(t(e?.message ?? 'errorLoginFailed'));
-    } finally {
-      setBusy(false);
+        const errorMessage = typeof e === 'string' ? e : (e as Error).message;
+        toast.error(t(errorMessage ?? 'errorLoginFailed'), { id: toastId });
     }
   };
 
-  const handleRegister = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError(null);
-    if (!username) { setError(t('errorEnterUsername')); return; }
-    if (!isValidEmail(email)) { setError(t('errorInvalidEmail')); return; }
-    if (!password) { setError(t('errorEnterPassword')); return; }
-    if (!code) { setError(t('errorEnterEmailCode')); return; }
-    
-    setBusy(true);
+  const onRegisterSubmit: SubmitHandler<RegisterForm> = async (data) => {
+    const toastId = toast.loading(t('registering'));
     try {
-      await invoke('register', { username, password, email, code });
-      onLoginSuccess();
+      await invoke('register', { 
+        username: data.username, 
+        password: data.password, 
+        email: data.email, 
+        code: data.code 
+      });
+      toast.success(t('registerSuccess'), { id: toastId });
+      setViewMode('login');
+      setAuthMode('password');
+      loginPasswordForm.reset({ email: data.email });
     } catch (e: any) {
-      setError(t(e?.message ?? 'errorRegisterFailed'));
-    } finally {
-      setBusy(false);
+        const errorMessage = typeof e === 'string' ? e : (e as Error).message;
+        toast.error(t(errorMessage ?? 'errorRegisterFailed'), { id: toastId });
     }
   };
 
-  const toggleLang = () => {
-    const newLng = i18n.language === 'zh' ? 'en' : 'zh';
-    i18n.changeLanguage(newLng);
+  const toggleLang = () => i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
+
+  const getSubmitHandler = () => {
+    if (isLogin) {
+      return authMode === 'password' 
+        ? loginPasswordForm.handleSubmit(onLoginSubmit)
+        : loginCodeForm.handleSubmit(onLoginSubmit);
+    }
+    return registerForm.handleSubmit(onRegisterSubmit);
   };
+
+  const { isSubmitting: isLoginPasswordSubmitting, errors: loginPasswordErrors } = loginPasswordForm.formState;
+  const { isSubmitting: isLoginCodeSubmitting, errors: loginCodeErrors } = loginCodeForm.formState;
+  const { isSubmitting: isRegisterSubmitting, errors: registerErrors } = registerForm.formState;
+
+  const isSubmitting = isLoginPasswordSubmitting || isLoginCodeSubmitting || isRegisterSubmitting;
+
+  const renderLoginForm = () => (
+    <>
+      <div className="mb-4 flex gap-2 p-1 bg-white/5 rounded-lg" role="tablist" aria-label={t('authMethodSwitch')}>
+        <button role="tab" aria-selected={authMode === 'password'} onClick={() => setAuthMode('password')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 transition-colors ${authMode === 'password' ? 'bg-cyan-600/70 text-white shadow-md' : 'text-gray-300 hover:bg-white/10'}`}>
+          {t('passwordLogin')}
+        </button>
+        <button role="tab" aria-selected={authMode === 'code'} onClick={() => setAuthMode('code')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 transition-colors ${authMode === 'code' ? 'bg-cyan-600/70 text-white shadow-md' : 'text-gray-300 hover:bg-white/10'}`}>
+          {t('codeLogin')}
+        </button>
+      </div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={authMode}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2 }}
+        >
+          {authMode === 'password' ? (
+            <div className="space-y-4">
+              <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...loginPasswordForm.register('email')} error={!!loginPasswordErrors.email} />
+              <div className="relative">
+                <FormInput icon={<KeyRound size={18} />} type={showPassword ? 'text' : 'password'} placeholder={t('passwordPlaceholder')} {...loginPasswordForm.register('password')} error={!!loginPasswordErrors.password} />
+                <button type="button" aria-label={showPassword ? t('togglePasswordHide') : t('togglePasswordShow')} onClick={() => setShowPassword(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...loginCodeForm.register('email')} error={!!loginCodeErrors.email} />
+              <div className="flex gap-3 items-start">
+                <div className="flex-grow">
+                  <FormInput icon={<AtSign size={18} />} placeholder={t('codePlaceholder')} {...loginCodeForm.register('code')} error={!!loginCodeErrors.code} />
+                </div>
+                <button type="button" onClick={handleSendCode} disabled={sendingCode || countdown > 0} className="px-4 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
+                  {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </>
+  );
+
+  const renderRegisterForm = () => (
+    <div className="space-y-4">
+      <FormInput icon={<User size={18} />} placeholder={t('usernamePlaceholder')} {...registerForm.register('username')} error={!!registerErrors.username} />
+      <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...registerForm.register('email')} error={!!registerErrors.email} />
+      <div className="relative">
+        <FormInput icon={<KeyRound size={18} />} type={showPassword ? 'text' : 'password'} placeholder={t('passwordPlaceholder')} {...registerForm.register('password')} error={!!registerErrors.password} />
+        <button type="button" aria-label={showPassword ? t('togglePasswordHide') : t('togglePasswordShow')} onClick={() => setShowPassword(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+      </div>
+      <div className="flex gap-3 items-start">
+        <div className="flex-grow">
+          <FormInput icon={<AtSign size={18} />} placeholder={t('codePlaceholder')} {...registerForm.register('code')} error={!!registerErrors.code} />
+        </div>
+        <button type="button" onClick={handleSendCode} disabled={sendingCode || countdown > 0} className="px-4 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap">
+          {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
+        </button>
+      </div>
+    </div>
+  );
+
+  const getErrorMessage = () => {
+    let errors: FieldErrors;
+    if (isLogin) {
+      errors = authMode === 'password' ? loginPasswordErrors : loginCodeErrors;
+    } else {
+      errors = registerErrors;
+    }
+    for (const key in errors) {
+      if (errors[key as keyof typeof errors]) {
+        return t((errors[key as keyof typeof errors]?.message) as string);
+      }
+    }
+    return null;
+  };
+  
+  const errorMessage = getErrorMessage();
 
   return (
-    // 【关键修正】: 恢复 bg-black，确保有一个坚实的底色，并添加 overflow-hidden
-    <div className="relative min-h-screen w-full bg-black text-gray-100 font-sans overflow-hidden">
-      {/* HashPowerBackground 现在是页面的底层背景。它自身的样式应包含 z-index: -10 */}
+    // **FIX**: 使用一个根 div 来包裹所有内容，确保清晰的 DOM 结构
+    <div className="min-h-screen w-full bg-transparent">
       <HashPowerBackground />
-
-      {/* 【关键修正】: 所有UI内容都放在一个 z-10 的容器里，确保它们在背景之上 */}
-      <div className="relative z-10">
-        <header className="w-full max-w-6xl mx-auto px-4 pt-6 flex items-center justify-between">
-          <div className="text-lg font-bold tracking-wide select-none">{t('appName')}</div>
-          <div className="flex items-center gap-3">
-            <button
-              aria-label={t('switchLanguage')}
-              onClick={toggleLang}
-              className="text-sm rounded-md px-3 py-1 bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              {i18n.language === 'zh' ? '中 / EN' : 'EN / 中'}
-            </button>
-          </div>
+      <Toaster position="top-center" toastOptions={{
+        className: 'bg-gray-800 text-white border border-white/20',
+      }} />
+      
+      {/* **FIX**: 这个 wrapper 使用 relative 和 z-10，确保它在背景之上 */}
+      <div className="relative z-10 flex flex-col min-h-screen text-gray-100 font-sans">
+        <header className="w-full max-w-7xl mx-auto px-6 pt-6 flex items-center justify-between">
+          <div className="text-xl font-bold tracking-wider select-none text-white/90">{t('appName')}</div>
+          <button
+            aria-label={t('switchLanguage')}
+            onClick={toggleLang}
+            className="text-sm rounded-md px-3 py-1.5 bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 transition-colors"
+          >
+            {i18n.language === 'zh' ? 'EN' : '中'}
+          </button>
         </header>
 
-        <main className="flex flex-col items-center justify-center px-4 py-12">
-          <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-            <section className="order-2 md:order-1 px-4 md:px-8">
-              <h2 className="text-2xl md:text-3xl font-extrabold leading-tight mb-4">{t('tagline')}</h2>
-              <p className="text-sm md:text-base text-gray-300 mb-6">{t('description')}</p>
-              <div className="mt-4 p-4 rounded-xl bg-white/5 backdrop-blur-md border border-white/10 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-gray-300">{t('currentNetworkPower')}</div>
-                    <div className="text-xl font-semibold mt-1">1.24 PH/s</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-300 text-right">{t('hourlyEarnings')}</div>
-                    <div className="text-lg font-semibold mt-1">0.0024 CAL</div>
-                  </div>
-                </div>
-              </div>
-            </section>
+        <main className="flex-grow flex items-center justify-center p-4">
+          <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+            <motion.section 
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.7, delay: 0.2 }}
+              className="order-2 md:order-1 text-center md:text-left"
+            >
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight text-white tracking-wide">
+                {t('tagline')}
+              </h2>
+              <p className="text-base md:text-lg text-gray-300 mt-6 max-w-lg mx-auto md:mx-0">
+                {t('description')}
+              </p>
+            </motion.section>
 
-            <section className="order-1 md:order-2 px-4 md:px-8">
-              <div className="mx-auto max-w-md">
-                <div className="p-6 rounded-2xl bg-black/30 backdrop-blur-lg border border-white/10 shadow-2xl">
-                  <h3 className="text-xl font-semibold mb-4">{viewMode === 'login' ? t('loginTitle') : t('registerTitle')}</h3>
-
-                  {viewMode === 'login' && (
-                    <div className="mb-4 flex gap-2" role="tablist" aria-label={t('authMethodSwitch')}>
-                      <button role="tab" aria-selected={authMode === 'password'} onClick={() => setAuthMode('password')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 ${authMode === 'password' ? 'bg-cyan-600/70 text-white' : 'bg-white/10 text-gray-200'}`}>
-                        {t('passwordLogin')}
-                      </button>
-                      <button role="tab" aria-selected={authMode === 'code'} onClick={() => setAuthMode('code')} className={`flex-1 py-2 rounded-md text-sm font-medium focus:outline-none focus-visible:ring-2 ${authMode === 'code' ? 'bg-cyan-600/70 text-white' : 'bg-white/10 text-gray-200'}`}>
-                        {t('codeLogin')}
-                      </button>
-                    </div>
-                  )}
-
-                  <form onSubmit={viewMode === 'login' ? handleLogin : handleRegister} className="space-y-4" aria-live="polite">
-                    {viewMode === 'register' && (
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><User size={18} /></div>
-                        <input aria-label={t('usernamePlaceholder')} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('usernamePlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" minLength={3} />
-                      </div>
-                    )}
-
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><Mail size={18} /></div>
-                      <input aria-label={t('emailPlaceholder')} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('emailPlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required />
-                    </div>
-
-                    {(authMode === 'password' || viewMode === 'register') && (
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><KeyRound size={18} /></div>
-                        <input aria-label={t('passwordPlaceholder')} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('passwordPlaceholder')} className="w-full pl-12 pr-10 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required minLength={6} />
-                        <button type="button" aria-label={showPassword ? t('togglePasswordHide') : t('togglePasswordShow')} onClick={() => setShowPassword((s) => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded focus:outline-none focus-visible:ring-2">
-                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                    )}
-
-                    {(authMode === 'code' || viewMode === 'register') && (
-                      <div className="flex gap-3 items-center">
-                        <div className="relative flex-grow">
-                          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400"><AtSign size={18} /></div>
-                          <input aria-label={t('codePlaceholder')} value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('codePlaceholder')} className="w-full pl-12 pr-3 py-2 rounded-lg bg-transparent border border-white/20 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" required />
+            <motion.section 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.4 }}
+              className="order-1 md:order-2"
+            >
+              <div className="w-full max-w-sm mx-auto p-8 rounded-2xl bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl shadow-cyan-500/10">
+                <h3 className="text-2xl font-semibold mb-6 text-center text-white/90">
+                  {isLogin ? t('loginTitle') : t('registerTitle')}
+                </h3>
+                
+                <form onSubmit={getSubmitHandler()} className="space-y-4" noValidate>
+                  {isLogin ? renderLoginForm() : renderRegisterForm()}
+                  
+                  <AnimatePresence>
+                    {errorMessage && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div role="alert" className="text-sm text-red-400 text-center pt-2">
+                          {errorMessage}
                         </div>
-                        <button type="button" onClick={handleSendCode} disabled={sendingCode || countdown > 0} className="px-4 py-2 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 bg-white/10 hover:bg-white/20 disabled:opacity-60">
-                          {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
-                        </button>
-                      </div>
+                      </motion.div>
                     )}
+                  </AnimatePresence>
 
-                    <div aria-live="assertive" className="min-h-[1.25rem]">
-                      {error && <div role="alert" className="text-sm text-red-400">{error}</div>}
-                    </div>
-
-                    <div className="space-y-2">
-                      <button type="submit" disabled={busy} className="w-full py-2 rounded-lg font-semibold text-white bg-cyan-600/90 hover:bg-cyan-600 hover:shadow-lg disabled:opacity-60 focus:outline-none focus-visible:ring-2">
-                        {busy ? t(viewMode === 'login' ? 'loggingIn' : 'registering') : t(viewMode === 'login' ? 'signIn' : 'register')}
+                  <div className="pt-4 space-y-3">
+                    <button type="submit" disabled={isSubmitting} className="w-full py-3 rounded-lg font-semibold text-white bg-cyan-600 hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 transition-all duration-300 flex items-center justify-center">
+                      {isSubmitting && <LoaderCircle className="animate-spin mr-2" size={20} />}
+                      {isSubmitting ? t(isLogin ? 'loggingIn' : 'registering') : t(isLogin ? 'signIn' : 'register')}
+                    </button>
+                    <div className="flex items-center justify-between text-sm text-gray-400">
+                      <button type="button" onClick={() => { 
+                          setViewMode(isLogin ? 'register' : 'login'); 
+                          loginPasswordForm.reset();
+                          loginCodeForm.reset();
+                          registerForm.reset();
+                        }} className="hover:underline hover:text-white transition-colors">
+                        {isLogin ? t('noAccountRegister') : t('hasAccountLogin')}
                       </button>
-
-                      <div className="flex items-center justify-between text-sm text-gray-300">
-                        <button type="button" onClick={() => setViewMode(viewMode === 'login' ? 'register' : 'login')} className="hover:underline">
-                          {viewMode === 'login' ? t('noAccountRegister') : t('hasAccountLogin')}
-                        </button>
-
-                        {viewMode === 'login' && (
-                          <a href="#" className="text-sm hover:underline">{t('forgotPassword')}</a>
-                        )}
-                      </div>
+                      {isLogin && (
+                        <a href="#" className="text-sm hover:underline hover:text-white transition-colors">{t('forgotPassword')}</a>
+                      )}
                     </div>
-                  </form>
-                </div>
+                  </div>
+                </form>
               </div>
-            </section>
+            </motion.section>
           </div>
         </main>
       </div>

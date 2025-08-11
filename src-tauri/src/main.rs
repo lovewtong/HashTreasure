@@ -13,6 +13,7 @@ fn main() {
     env_logger::init();
 
     tauri::Builder::default()
+        .manage(request::Client::new())
         .plugin(PluginBuilder::default().build())
         .invoke_handler(tauri::generate_handler![
             api::login,
