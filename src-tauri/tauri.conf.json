@@ -5,7 +5,7 @@
   "identifier": "com.tauri.dev",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -56,11 +56,21 @@
       "signingIdentity": null
     },
     "windows": {
-
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": ""
     }
   },
-  "plugins": {}
+  "plugins": {
+    "http": {
+      "scope": [
+        "http://suanlibao.xyz:8080/*"
+      ]
+    },
+    "https": {
+      "scope": [
+        "https://suanlibao.xyz:8080/*"
+      ]
+    }
+  }
 }

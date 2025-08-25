@@ -1,117 +1,80 @@
-// src/components/HashPowerBackground.tsx
-import React, { useCallback } from 'react';
-import Particles from "react-tsparticles";
-import type { Engine } from "tsparticles-engine";
-import { loadSlim } from "tsparticles-slim";
+// src/components/HashPowerBackground.tsx — 蓝白脉冲·高亮加强版 v2
+import React, { useCallback } from 'react'
+import Particles from 'react-tsparticles'
+import type { Engine } from 'tsparticles-engine'
+import { loadSlim } from 'tsparticles-slim'
+import { loadEmittersPlugin } from 'tsparticles-plugin-emitters'
 
 const HashPowerBackground: React.FC = () => {
-    const particlesInit = useCallback(async (engine: Engine) => {
-        await loadSlim(engine);
-    }, []);
+  const particlesInit = useCallback(async (engine: Engine) => {
+    await loadSlim(engine)
+    await loadEmittersPlugin(engine)
+  }, [])
 
-    const options = {
-        background: {
-            color: {
-                value: '#000000',
-            },
-        },
-        fpsLimit: 120,
-        interactivity: {
-            events: {
-                onHover: {
-                    enable: true,
-                    // **效果更新**: 鼠标悬停效果改为“排斥”，更具科技感
-                    mode: 'repulse',
-                },
-                resize: true,
-            },
-            modes: {
-                repulse: {
-                    distance: 150,
-                    duration: 0.4,
-                },
-                grab: {
-                    distance: 180,
-                    links: {
-                        opacity: 0.3,
-                    },
-                },
-            },
-        },
-        particles: {
-            color: {
-                value: '#00d5ff', // 使用更明亮的青色
-            },
-            links: {
-                color: '#00d5ff',
-                distance: 150,
-                enable: true,
-                // **亮度提升**: 显著提高连接线的不透明度
-                opacity: 0.4,
-                width: 1,
-            },
-            move: {
-                direction: 'none' as const,
-                enable: true,
-                outModes: {
-                    default: 'bounce' as const,
-                },
-                random: true,
-                // **动感提升**: 加快粒子移动速度
-                speed: 1.2,
-                straight: false,
-            },
-            number: {
-                density: {
-                    enable: true,
-                    area: 800,
-                },
-                // **亮度提升**: 增加粒子数量
-                value: 120,
-            },
-            opacity: {
-                // **亮度提升**: 提高粒子的基础不透明度
-                value: { min: 0.3, max: 0.8 },
-                animation: {
-                    enable: true,
-                    speed: 1,
-                    minimumValue: 0.2,
-                    sync: false
-                }
-            },
-            shape: {
-                type: 'circle' as const,
-            },
-            size: {
-                value: { min: 1, max: 2.5 },
-                animation: {
-                    enable: true,
-                    speed: 2,
-                    minimumValue: 0.5,
-                    sync: false
-                }
-            },
-            // **效果更新**: 新增闪烁效果，让粒子随机发光
-            twinkle: {
-                particles: {
-                    enable: true,
-                    frequency: 0.05,
-                    opacity: 1
-                }
-            }
-        },
-        detectRetina: true,
-    };
+  // 更亮：提高粒子不透明度、尺寸、发射频率，并开启蓝色发光阴影
+  const options = {
+    background: { color: { value: 'transparent' } },
+    fpsLimit: 60,
+    pauseOnBlur: true,
+    pauseOnOutsideViewport: true,
 
-    return (
-        <div className="fixed inset-0 z-0">
-            <Particles
-                id="tsparticles"
-                init={particlesInit}
-                options={options as any}
-            />
-        </div>
-    );
-};
+    interactivity: { events: { onHover: { enable: false }, onClick: { enable: false }, resize: true } },
 
-export default HashPowerBackground;
+    particles: {
+      number: { value: 0 },
+      color: { value: ['#FFFFFF', '#E0F7FF', '#A5F3FC', '#60A5FA'] },
+      shape: { type: 'circle' as const },
+      opacity: {
+        value: { min: 0.28, max: 0.55 },
+        animation: { enable: true, speed: 0.3, startValue: 'max', destroy: 'min', sync: false },
+      },
+      size: { value: { min: 1.2, max: 2.8 } },
+      shadow: { enable: true, blur: 8, color: { value: '#7DD3FC' } }, // 发光
+      links: { enable: false },
+      move: {
+        enable: true,
+        direction: 'outside' as const,
+        center: { x: 58, y: 52, mode: 'percent' as const },
+        speed: { min: 0.45, max: 0.9 },
+        straight: true,
+        random: false,
+        outModes: { default: 'destroy' as const },
+      },
+    },
+
+    emitters: [
+      {
+        position: { x: 58, y: 52 },
+        direction: 'outside',
+        size: { width: 0, height: 0, mode: 'precise' },
+        rate: { quantity: 6, delay: 0.06 }, // 数量↑ 亮度↑
+        life: { count: 0, duration: 1.8, delay: 9, wait: true },
+      },
+      {
+        position: { x: 58, y: 52 },
+        direction: 'outside',
+        size: { width: 0, height: 0, mode: 'precise' },
+        rate: { quantity: 5, delay: 0.08 },
+        life: { count: 0, duration: 1.8, delay: 13.5, wait: true },
+      },
+    ],
+
+    detectRetina: true,
+  } as const
+
+  return (
+    <div
+      className="fixed inset-0 z-0 pointer-events-none"
+      style={{
+        // 更亮的蓝白基调：提高径向渐变的 alpha，底层纵向渐变略提亮
+        background:
+          'radial-gradient(60% 55% at 60% 52%, rgba(125,211,252,0.42) 0%, rgba(96,165,250,0.28) 24%, rgba(15,23,42,0) 62%),\n' +
+          'linear-gradient(180deg, #07101F 0%, #0B1220 50%, #0E1629 100%)',
+      }}
+    >
+      <Particles id="tsparticles" className="mix-blend-screen" init={particlesInit} options={options as any} />
+    </div>
+  )
+}
+
+export default HashPowerBackground

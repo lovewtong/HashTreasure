@@ -1,8 +1,8 @@
 // src/components/Login.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, forwardRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import { User, KeyRound, Mail, AtSign, Eye, EyeOff, LoaderCircle } from 'lucide-react';
+import { User, KeyRound, Mail, AtSign, Eye, EyeOff, LoaderCircle, Gift, Phone, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm, SubmitHandler, FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,6 +28,10 @@ const registerSchema = z.object({
   email: z.string().email({ message: 'errorInvalidEmail' }),
   password: z.string().min(6, { message: 'errorPasswordMinLength' }),
   code: z.string().min(4, { message: 'errorEnterEmailCode' }),
+  alipayPhone: z.string().optional(),
+  alipayName: z.string().optional(),
+  inviteCode: z.string().optional(),
+  phone: z.string().optional(),
 });
 
 type LoginPasswordForm = z.infer<typeof loginPasswordSchema>;
@@ -46,18 +50,21 @@ interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: boolean;
 }
 
-const FormInput: React.FC<FormInputProps> = ({ icon, error, ...props }) => (
-  <div className="relative">
-    <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
-      {icon}
+const FormInput = forwardRef<HTMLInputElement, FormInputProps>(
+  ({ icon, error, ...props }, ref) => (
+    <div className="relative">
+      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
+        {icon}
+      </div>
+      <input
+        ref={ref}
+        {...props}
+        className={`w-full pl-10 pr-3 py-2.5 rounded-lg bg-white/5 border ${
+          error ? 'border-red-500/50' : 'border-white/20'
+        } placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-colors duration-300`}
+      />
     </div>
-    <input
-      {...props}
-      className={`w-full pl-10 pr-3 py-2.5 rounded-lg bg-white/5 border ${
-        error ? 'border-red-500/50' : 'border-white/20'
-      } placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-colors duration-300`}
-    />
-  </div>
+  )
 );
 
 
@@ -69,23 +76,16 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [countdown, setCountdown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
 
-  // **FIX**: 为所有 useForm 添加 defaultValues 来防止初始加载时出现 undefined 验证错误
   const loginPasswordForm = useForm<LoginPasswordForm>({
     resolver: zodResolver(loginPasswordSchema),
     mode: 'onChange',
-    defaultValues: {
-      email: '',
-      password: '',
-    },
+    defaultValues: { email: '', password: '' },
   });
 
   const loginCodeForm = useForm<LoginCodeForm>({
     resolver: zodResolver(loginCodeSchema),
     mode: 'onChange',
-    defaultValues: {
-      email: '',
-      code: '',
-    },
+    defaultValues: { email: '', code: '' },
   });
 
   const registerForm = useForm<RegisterForm>({
@@ -96,6 +96,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       email: '',
       password: '',
       code: '',
+      alipayPhone: '',
+      alipayName: '',
+      inviteCode: '',
+      phone: '',
     },
   });
 
@@ -122,7 +126,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setSendingCode(true);
     toast.loading(t('sending'), { id: 'code-toast' });
     try {
-      await invoke('send_code', { email, type: isLogin ? 'login' : 'register' });
+      await invoke('send_code', { email, type: isLogin ? 'LOGIN' : 'REGISTER' });
       toast.success(t('sendCodeSuccess'), { id: 'code-toast' });
       setCountdown(60);
     } catch (e: any) {
@@ -138,7 +142,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       if (authMode === 'password') {
         const { email, password } = data as LoginPasswordForm;
-        await invoke('login', { username: email, password });
+        // --- MODIFIED: Pass `email` instead of `username` to match the backend command ---
+        await invoke('login', { email, password });
       } else {
         const { email, code } = data as LoginCodeForm;
         await invoke('login_by_code', { email, code });
@@ -158,7 +163,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         username: data.username, 
         password: data.password, 
         email: data.email, 
-        code: data.code 
+        code: data.code,
+        alipayPhone: data.alipayPhone || null,
+        alipayName: data.alipayName || null,
+        inviteCode: data.inviteCode || null,
+        phone: data.phone || null,
       });
       toast.success(t('registerSuccess'), { id: toastId });
       setViewMode('login');
@@ -244,6 +253,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
         </button>
       </div>
+      <FormInput icon={<Phone size={18} />} placeholder={t('phoneOptionalPlaceholder')} {...registerForm.register('phone')} error={!!registerErrors.phone} />
+      <FormInput icon={<CreditCard size={18} />} placeholder={t('alipayPhoneOptionalPlaceholder')} {...registerForm.register('alipayPhone')} error={!!registerErrors.alipayPhone} />
+      <FormInput icon={<User size={18} />} placeholder={t('alipayNameOptionalPlaceholder')} {...registerForm.register('alipayName')} error={!!registerErrors.alipayName} />
+      <FormInput icon={<Gift size={18} />} placeholder={t('inviteCodeOptionalPlaceholder')} {...registerForm.register('inviteCode')} error={!!registerErrors.inviteCode} />
     </div>
   );
 

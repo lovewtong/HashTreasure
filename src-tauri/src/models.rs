@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserLoginDTO {
-    pub userName: String,
+    pub email: String,
     pub userPassword: String,
 }
 
@@ -21,8 +21,6 @@ pub struct EmailCodeLoginDTO {
 #[serde(rename_all = "camelCase")]
 pub struct SendCodeDTO {
     pub email: String,
-    // 根据 API 文档，可能需要一个 type 字段，例如 "login" 或 "register"
-    // 这里我们暂时假设登录用的 type 是 "login"
     pub r#type: String,
 }
 
@@ -44,16 +42,23 @@ pub struct UserLoginVO {
 }
 
 /// 用户注册请求体 (Data Transfer Object)
+// **FIX**: 结构体与接口文档完全对齐
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-#[derive(Deserialize)]
 pub struct UserRegisterDTO {
-    #[serde(rename = "username")]
     pub user_name: String,
-    #[serde(rename = "password")]
     pub user_password: String,
-    pub email: String,  // Already matches "email"
-    pub code: String,   // Already matches "code"
-    #[serde(rename = "regInto")]  // If JS sends "reg_into", adjust; otherwise, if it's hardcoded in Rust, no rename needed
+    pub email: String,
+    pub code: String,
     pub reg_into: String,
+    // 添加可选字段，使用 #[serde(skip_serializing_if = "Option::is_none")]
+    // 可以在值为 None 时不序列化该字段，保持 JSON 清洁
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alipay_phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alipay_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
 }

@@ -3,13 +3,15 @@
 use crate::api::ApiClient;
 use crate::error::AppError;
 use crate::models::{EmailCodeLoginDTO, SendCodeDTO, UserLoginDTO, UserLoginVO, UserRegisterDTO};
-use serde_json::Value;
-use tauri::{State, Wry};
-use tauri_plugin_store::Store;
+use std::path::PathBuf;
+use tauri::{AppHandle, State};
+use tauri_plugin_store::StoreBuilder;
 
-// 辅助函数：从 store 中获取 token。
-// 只需要不可变引用 &Store<Wry>。
-fn get_token_from_store(store: &Store<Wry>) -> Result<String, AppError> {
+const STORE_PATH: &str = "store.dat";
+
+fn get_token_from_store(app: &AppHandle) -> Result<String, AppError> {
+    let path = PathBuf::from(STORE_PATH);
+    let store = StoreBuilder::new(app, path).build()?;
     match store.get("auth_token") {
         Some(token_value) if token_value.is_string() => {
             Ok(token_value.as_str().unwrap().to_string())
@@ -18,42 +20,40 @@ fn get_token_from_store(store: &Store<Wry>) -> Result<String, AppError> {
     }
 }
 
-// 辅助函数：保存 token。
-// 只需要不可变引用 &Store<Wry>，因为它使用了内部可变性。
-fn save_token(store: &Store<Wry>, token: &str) -> Result<(), AppError> {
-    store.set(
-        "auth_token".to_string(),
-        Value::String(token.to_string()),
-    );
-
-    store.save().map_err(|_| AppError::StoreError)
+fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
+    let path = PathBuf::from(STORE_PATH);
+    let mut store = StoreBuilder::new(app, path).build()?;
+    let token_value = serde_json::Value::String(token.to_string());
+    store.set("auth_token".to_string(), token_value);
+    store.save()?;
+    Ok(())
 }
 
-// 辅助函数：移除 token。
-// 只需要不可变引用 &Store<Wry>。
-fn remove_token(store: &Store<Wry>) -> Result<(), AppError> {
+fn remove_token(app: &AppHandle) -> Result<(), AppError> {
+    let path = PathBuf::from(STORE_PATH);
+    let mut store = StoreBuilder::new(app, path).build()?;
     store.delete("auth_token".to_string());
-
-    store.save().map_err(|_| AppError::StoreError)
+    store.save()?;
+    Ok(())
 }
 
-// **FIX**: 所有命令中的 store 参数都不再需要 mut
 #[tauri::command]
 pub async fn login(
-    username: String,
+    // --- MODIFIED: Changed `username` to `email` for clarity ---
+    email: String,
     password: String,
+    app: AppHandle,
     api_client: State<'_, ApiClient>,
-    store: State<'_, Store<Wry>>,
 ) -> Result<String, AppError> {
-    log::info!("Attempting to login for user: {}", username);
+    log::info!("Attempting to login for user: {}", email);
     let payload = UserLoginDTO {
-        userName: username,
+        // The API expects a `userName` field, which we populate with the email.
+        email: email,
         userPassword: password,
     };
     let response: UserLoginVO = api_client.login(&payload).await?;
     if let Some(token) = response.token {
-        // **FIX**: 直接传递 deref 后的 &store
-        save_token(&store, &token)?;
+        save_token(&app, &token)?;
         Ok("Login successful".to_string())
     } else {
         Err(AppError::ApiError(
@@ -66,14 +66,14 @@ pub async fn login(
 pub async fn login_by_code(
     email: String,
     code: String,
+    app: AppHandle,
     api_client: State<'_, ApiClient>,
-    store: State<'_, Store<Wry>>,
 ) -> Result<String, AppError> {
     log::info!("Attempting to login with code for email: {}", email);
     let payload = EmailCodeLoginDTO { email, code };
     let response: UserLoginVO = api_client.login_by_code(&payload).await?;
     if let Some(token) = response.token {
-        save_token(&store, &token)?;
+        save_token(&app, &token)?;
         Ok("Login with code successful".to_string())
     } else {
         Err(AppError::ApiError(
@@ -88,20 +88,28 @@ pub async fn register(
     password: String,
     email: String,
     code: String,
+    alipay_phone: Option<String>,
+    alipay_name: Option<String>,
+    invite_code: Option<String>,
+    phone: Option<String>,
+    app: AppHandle,
     api_client: State<'_, ApiClient>,
-    store: State<'_, Store<Wry>>,
 ) -> Result<String, AppError> {
     log::info!("Attempting to register new user: {}", username);
     let payload = UserRegisterDTO {
         user_name: username,
         user_password: password,
-        email,
+        email: email,
         code,
         reg_into: "client".to_string(),
+        alipay_phone,
+        alipay_name,
+        invite_code,
+        phone,
     };
     let response: UserLoginVO = api_client.register(&payload).await?;
     if let Some(token) = response.token {
-        save_token(&store, &token)?;
+        save_token(&app, &token)?;
         Ok("Registration successful".to_string())
     } else {
         Err(AppError::ApiError(
@@ -122,12 +130,12 @@ pub async fn send_code(
 }
 
 #[tauri::command]
-pub async fn get_auth_token(store: State<'_, Store<Wry>>) -> Result<Option<String>, AppError> {
-    Ok(get_token_from_store(&store).ok())
+pub async fn get_auth_token(app: AppHandle) -> Result<Option<String>, AppError> {
+    Ok(get_token_from_store(&app).ok())
 }
 
 #[tauri::command]
-pub async fn logout(store: State<'_, Store<Wry>>) -> Result<(), AppError> {
+pub async fn logout(app: AppHandle) -> Result<(), AppError> {
     log::info!("User logging out");
-    remove_token(&store)
+    remove_token(&app)
 }
