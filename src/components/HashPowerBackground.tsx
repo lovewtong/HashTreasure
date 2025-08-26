@@ -1,80 +1,94 @@
-// src/components/HashPowerBackground.tsx — 蓝白脉冲·高亮加强版 v2
-import React, { useCallback } from 'react'
-import Particles from 'react-tsparticles'
-import type { Engine } from 'tsparticles-engine'
-import { loadSlim } from 'tsparticles-slim'
-import { loadEmittersPlugin } from 'tsparticles-plugin-emitters'
+// src/components/HashPowerBackground.tsx
+// 轻/深主题各一套：浅色偏“明亮科技蓝”，深色偏“霓虹赛博蓝”
+// 通过监听 <html class="dark"> 动态切换，无需重载
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Particles from 'react-tsparticles';
+import type { Engine } from 'tsparticles-engine';
+import { loadSlim } from 'tsparticles-slim';
+import { loadEmittersPlugin } from 'tsparticles-plugin-emitters';
+
+const useIsDark = () => {
+  const [isDark, setIsDark] = useState<boolean>(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const update = () => setIsDark(el.classList.contains('dark'));
+    update();
+
+    const obs = new MutationObserver(update);
+    obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+  return isDark;
+};
 
 const HashPowerBackground: React.FC = () => {
+  const isDark = useIsDark();
+
   const particlesInit = useCallback(async (engine: Engine) => {
-    await loadSlim(engine)
-    await loadEmittersPlugin(engine)
-  }, [])
+    await loadSlim(engine);
+    await loadEmittersPlugin(engine);
+  }, []);
 
-  // 更亮：提高粒子不透明度、尺寸、发射频率，并开启蓝色发光阴影
-  const options = {
-    background: { color: { value: 'transparent' } },
-    fpsLimit: 60,
-    pauseOnBlur: true,
-    pauseOnOutsideViewport: true,
-
-    interactivity: { events: { onHover: { enable: false }, onClick: { enable: false }, resize: true } },
-
-    particles: {
-      number: { value: 0 },
-      color: { value: ['#FFFFFF', '#E0F7FF', '#A5F3FC', '#60A5FA'] },
-      shape: { type: 'circle' as const },
-      opacity: {
-        value: { min: 0.28, max: 0.55 },
-        animation: { enable: true, speed: 0.3, startValue: 'max', destroy: 'min', sync: false },
+  const options = useMemo(() => {
+    // 文本建议：浅色模式粒子更柔和，深色模式稍微提升发光度与不透明度
+    return {
+      fpsLimit: 60,
+      interactivity: { events: { onHover: { enable: false }, onClick: { enable: false }, resize: true } },
+      particles: {
+        number: { value: 0 },
+        color: { value: isDark ? ['#BAE6FD', '#7DD3FC', '#60A5FA', '#00A4EF'] : ['#FFFFFF', '#BAE6FD', '#7DD3FC', '#60A5FA'] },
+        shape: { type: 'circle' as const },
+        opacity: {
+          value: { min: isDark ? 0.22 : 0.18, max: isDark ? 0.40 : 0.32 },
+          animation: { enable: true, speed: 0.25, startValue: 'max', destroy: 'min' }
+        },
+        size: { value: { min: 1.1, max: 2.4 } },
+        links: { enable: false },
+        move: {
+          enable: true,
+          direction: 'outside' as const,
+          center: { x: 62, y: 50, mode: 'percent' as const },
+          speed: { min: 0.4, max: 0.8 },
+          straight: true, random: false,
+          outModes: { default: 'destroy' as const },
+        },
       },
-      size: { value: { min: 1.2, max: 2.8 } },
-      shadow: { enable: true, blur: 8, color: { value: '#7DD3FC' } }, // 发光
-      links: { enable: false },
-      move: {
-        enable: true,
-        direction: 'outside' as const,
-        center: { x: 58, y: 52, mode: 'percent' as const },
-        speed: { min: 0.45, max: 0.9 },
-        straight: true,
-        random: false,
-        outModes: { default: 'destroy' as const },
-      },
-    },
+      emitters: [
+        { position: { x: 62, y: 50 }, direction: 'outside', size: { width: 0, height: 0, mode: 'precise' },
+          rate: { quantity: 4, delay: 0.07 }, life: { count: 0, duration: 1.6, delay: 9, wait: true } },
+        { position: { x: 62, y: 50 }, direction: 'outside', size: { width: 0, height: 0, mode: 'precise' },
+          rate: { quantity: 3, delay: 0.09 }, life: { count: 0, duration: 1.6, delay: 13.5, wait: true } },
+      ],
+      detectRetina: true,
+    } as const;
+  }, [isDark]);
 
-    emitters: [
-      {
-        position: { x: 58, y: 52 },
-        direction: 'outside',
-        size: { width: 0, height: 0, mode: 'precise' },
-        rate: { quantity: 6, delay: 0.06 }, // 数量↑ 亮度↑
-        life: { count: 0, duration: 1.8, delay: 9, wait: true },
-      },
-      {
-        position: { x: 58, y: 52 },
-        direction: 'outside',
-        size: { width: 0, height: 0, mode: 'precise' },
-        rate: { quantity: 5, delay: 0.08 },
-        life: { count: 0, duration: 1.8, delay: 13.5, wait: true },
-      },
-    ],
-
-    detectRetina: true,
-  } as const
+  const layerStyle = useMemo<React.CSSProperties>(() => {
+    // 轻：蓝白网格 + 柔和径向蓝；深：近黑底 + 霓虹蓝/青发光
+    return isDark
+      ? {
+          background: [
+            'repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 48px)',
+            'repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 48px)',
+            'radial-gradient(60% 55% at 62% 48%, rgba(0,164,239,0.32) 0%, rgba(2,191,231,0.20) 30%, rgba(13,78,137,0) 70%)',
+            'linear-gradient(180deg, #0D0F11 0%, #121212 45%, #17191B 100%)'
+          ].join(',')
+        }
+      : {
+          background: [
+            'repeating-linear-gradient(0deg, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 1px, transparent 1px, transparent 48px)',
+            'repeating-linear-gradient(90deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 48px)',
+            'radial-gradient(60% 55% at 62% 48%, rgba(186,230,253,0.36) 0%, rgba(125,211,252,0.26) 26%, rgba(16,75,129,0) 64%)',
+            'linear-gradient(180deg, #EAF5FF 0%, #F7FBFF 55%, #FFFFFF 100%)'
+          ].join(',')
+        };
+  }, [isDark]);
 
   return (
-    <div
-      className="fixed inset-0 z-0 pointer-events-none"
-      style={{
-        // 更亮的蓝白基调：提高径向渐变的 alpha，底层纵向渐变略提亮
-        background:
-          'radial-gradient(60% 55% at 60% 52%, rgba(125,211,252,0.42) 0%, rgba(96,165,250,0.28) 24%, rgba(15,23,42,0) 62%),\n' +
-          'linear-gradient(180deg, #07101F 0%, #0B1220 50%, #0E1629 100%)',
-      }}
-    >
+    <div className="fixed inset-0 z-0 pointer-events-none" style={layerStyle}>
       <Particles id="tsparticles" className="mix-blend-screen" init={particlesInit} options={options as any} />
     </div>
-  )
-}
+  );
+};
 
-export default HashPowerBackground
+export default HashPowerBackground;

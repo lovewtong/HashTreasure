@@ -40,3 +40,54 @@
     animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
+
+@layer components {
+  /* 主按钮（与深浅主色统一） */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-semibold
+           text-white bg-primary hover:bg-primary-600
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+           disabled:opacity-50 disabled:cursor-not-allowed
+           dark:bg-primary-dark dark:hover:bg-[#0095D6];
+  }
+
+  /* 次级按钮（描边） */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-semibold
+           border border-slate-300 text-slate-700 bg-white hover:bg-slate-50
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+           dark:border-white/15 dark:text-slate-100 dark:bg-white/10 dark:hover:bg-white/15;
+  }
+
+  /* 玻璃卡片（登录框、仪表盘卡片可共用） */
+  .glass-card {
+    @apply rounded-2xl border bg-white shadow-card-light border-slate-200
+           dark:bg-[#1E1E1E]/70 dark:border-white/10 dark:backdrop-blur-md dark:shadow-card-dark;
+  }
+
+  /* 输入框基样式（描边式，聚焦高亮） */
+  .input {
+    @apply w-full px-3 py-2.5 rounded-lg bg-white text-slate-900 placeholder-slate-400
+           border border-slate-200 shadow-sm
+           focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-400
+           dark:bg-[#262626]/80 dark:text-slate-100 dark:placeholder-slate-400 dark:border-white/10
+           dark:focus:ring-[#00A4EF] dark:focus:border-[#00A4EF];
+  }
+
+  /* 增加缩放 */
+  :root{
+    /* 正文 */
+    --fz-base: clamp(14px, 13px + 0.25vw, 16px);
+    /* 小字 */
+    --fz-sm:clamp(12px, 11.5px + 0.15vw, 14px);
+    /* 卡片大数值 */
+    --fz-state:clamp(28px, 22px + 1.2vw, 40px);
+    /* 页面大标题 */
+    --fz-h1:clamp(22px, 18px + 1.2vw, 32px);
+  }
+
+  html, body{font-size: var(--fz-base);}
+  .text-fluid-sm { font-size: var(--fz-sm); }
+  .h-fluid-1 { font-size: var(--fz-h1); line-height: 1.25;}
+  .state-value{font-size: var(--fz-state); line-height: 1.15; font-variant-numeric: tabular-nums;}
+}
