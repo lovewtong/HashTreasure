@@ -7,8 +7,80 @@ use std::path::PathBuf;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreBuilder;
 
+// 挖矿进程管理依赖
+use tokio::sync::Mutex;
+use tokio::process::{Child as TokioChild, Command as TokioCommand};
+
 const STORE_PATH: &str = "store.dat";
 
+/// --------------------
+/// CPU 挖矿进程管理器
+/// --------------------
+#[derive(Default)]
+pub struct MiningManager {
+    child: Mutex<Option<TokioChild>>,
+}
+
+impl MiningManager {
+    async fn start(&self) -> Result<(), String> {
+        let mut guard = self.child.lock().await;
+        if guard.is_some() {
+            return Err("CPU mining is already running".into());
+        }
+
+        // 根据系统选择二进制名。请将 xmrig/xmrig.exe 放到应用同目录
+        let binary_name = if cfg!(target_os = "windows") { "xmrig.exe" } else { "xmrig" };
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current executable path: {}", e))?
+            .parent()
+            .map(|p| p.join(binary_name))
+            .ok_or_else(|| "Failed to resolve xmrig binary path".to_string())?;
+
+        // TODO: 替换为你在 C3Pool 的账号/钱包地址
+        let mut cmd = TokioCommand::new(exe_path);
+        cmd.arg("-o").arg("c3pool.com:3333")
+           .arg("-u").arg("your_c3pool_username")
+           .arg("-k");
+
+        let child = cmd.spawn().map_err(|e| format!("Failed to start xmrig process: {}", e))?;
+        *guard = Some(child);
+        Ok(())
+    }
+
+    async fn stop(&self) -> Result<(), String> {
+        let mut guard = self.child.lock().await;
+        match guard.take() {
+            Some(mut child) => {
+                // 兼容性更好的做法：start_kill()（同步）+ wait().await
+                if let Err(e) = child.start_kill() {
+                    // 若进程已退出，忽略；否则报错
+                    // 也可以选择直接返回 Err
+                    eprintln!("xmrig start_kill error (may already be exited): {}", e);
+                }
+                child
+                    .wait()
+                    .await
+                    .map_err(|e| format!("Failed to wait for xmrig process: {}", e))?;
+                Ok(())
+            }
+            None => Err("CPU mining is not running".into()),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_cpu_mining(manager: State<'_, MiningManager>) -> Result<(), String> {
+    manager.start().await
+}
+
+#[tauri::command]
+pub async fn stop_cpu_mining(manager: State<'_, MiningManager>) -> Result<(), String> {
+    manager.stop().await
+}
+
+/// --------------------
+/// 登录/注册 + 本地 Token 存储
+/// --------------------
 fn get_token_from_store(app: &AppHandle) -> Result<String, AppError> {
     let path = PathBuf::from(STORE_PATH);
     let store = StoreBuilder::new(app, path).build()?;
@@ -24,7 +96,9 @@ fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
     let path = PathBuf::from(STORE_PATH);
     let mut store = StoreBuilder::new(app, path).build()?;
     let token_value = serde_json::Value::String(token.to_string());
+    // set 返回 ()，不能用 ?
     store.set("auth_token".to_string(), token_value);
+    // save 才返回 Result
     store.save()?;
     Ok(())
 }
@@ -32,14 +106,14 @@ fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
 fn remove_token(app: &AppHandle) -> Result<(), AppError> {
     let path = PathBuf::from(STORE_PATH);
     let mut store = StoreBuilder::new(app, path).build()?;
-    store.delete("auth_token".to_string());
+    // delete 返回 bool，不能用 ?
+    let _ = store.delete("auth_token".to_string());
     store.save()?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn login(
-    // --- MODIFIED: Changed `username` to `email` for clarity ---
     email: String,
     password: String,
     app: AppHandle,
@@ -47,8 +121,7 @@ pub async fn login(
 ) -> Result<String, AppError> {
     log::info!("Attempting to login for user: {}", email);
     let payload = UserLoginDTO {
-        // The API expects a `userName` field, which we populate with the email.
-        email: email,
+        email,
         userPassword: password,
     };
     let response: UserLoginVO = api_client.login(&payload).await?;
@@ -99,7 +172,7 @@ pub async fn register(
     let payload = UserRegisterDTO {
         user_name: username,
         user_password: password,
-        email: email,
+        email,
         code,
         reg_into: "client".to_string(),
         alipay_phone,

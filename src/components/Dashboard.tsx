@@ -133,6 +133,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, onGoWithdraw }) => {
   const [trend, setTrend] = useState<number[]>([]);
   const [devices, setDevices] = useState<DeviceView[]>([]);
 
+  // CPU 挖矿状态：用于控制顶部按钮文本和颜色
+  const [isCpuMining, setIsCpuMining] = useState<boolean>(false);
+
   // 加载数据（全部走 Tauri 命令）
   useEffect(() => {
     // 余额
@@ -168,6 +171,27 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, onGoWithdraw }) => {
       })
       .catch(() => {});
   }, []);
+
+  // 切换 CPU 挖矿的回调。当未挖矿时调用 start_cpu_mining；正在挖矿时调用 stop_cpu_mining
+  const handleToggleMining = () => {
+    if (!isCpuMining) {
+      invoke('start_cpu_mining')
+        .then(() => {
+          setIsCpuMining(true);
+        })
+        .catch((err) => {
+          console.error('Failed to start CPU mining:', err);
+        });
+    } else {
+      invoke('stop_cpu_mining')
+        .then(() => {
+          setIsCpuMining(false);
+        })
+        .catch((err) => {
+          console.error('Failed to stop CPU mining:', err);
+        });
+    }
+  };
 
   const handleLogout = async () => {
     try { await invoke('logout'); onLogout(); } catch (_) {}
@@ -215,9 +239,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, onGoWithdraw }) => {
 
       {/* Main */}
       <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8">
-          <h2 className="h-fluid-1 font-bold text-slate-900 dark:text-white">欢迎回来！</h2>
-          <p className="mt-2 text-slate-600 dark:text-slate-300 text-fluid-sm">这是您的主控制面板。</p>
+        {/* 顶部欢迎标题和 CPU 挖矿按钮 */}
+        <header className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="h-fluid-1 font-bold text-slate-900 dark:text-white">欢迎回来！</h2>
+            <p className="mt-2 text-slate-600 dark:text-slate-300 text-fluid-sm">这是您的主控制面板。</p>
+          </div>
+          {/* CPU 挖矿开关按钮，根据状态改变颜色和文案 */}
+          <button
+            className={`px-4 py-2 rounded-lg text-sm font-semibold shadow-md transition-colors
+              ${isCpuMining
+                ? 'bg-rose-600 text-white hover:bg-rose-700'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+              }`}
+            onClick={handleToggleMining}
+          >
+            {isCpuMining ? '停止 CPU 挖矿' : '启动 CPU 挖矿'}
+          </button>
         </header>
 
         {/* Summary Cards */}
