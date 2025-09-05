@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, State};
-use tauri::Emitter; // <— 关键：引入 Emitter trait，才能使用 app.emit()
+use tauri::Emitter; // 引入 Emitter trait，才能使用 app.emit()
 use tauri_plugin_store::StoreBuilder;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child as TokioChild, Command as TokioCommand};
@@ -34,18 +34,15 @@ impl MiningManager {
         if child_guard.is_some() {
             return Err("CPU mining is already running".into());
         }
-
         let bin = if cfg!(target_os = "windows") { "xmrig.exe" } else { "xmrig" };
         let exe_path = std::env::current_exe().map_err(|e| format!("get current_exe failed: {e}"))?;
         let xmrig_path = exe_path
             .parent()
             .ok_or_else(|| "resolve xmrig binary path failed (no parent)".to_string())?
             .join(bin);
-
         if C3POOL_USER.trim().is_empty() {
             return Err("C3POOL_USER 为空，请在 commands.rs 中填写你的钱包/账号".into());
         }
-
         // 写配置 —— 优先与 xmrig.exe 同目录，其次回落到 %TEMP%
         let exe_dir = xmrig_path.parent().ok_or_else(|| "xmrig path has no parent".to_string())?;
         let cfg_path = match write_xmrig_config_into(exe_dir) {
@@ -55,7 +52,6 @@ impl MiningManager {
                 write_xmrig_config_temp()?
             }
         };
-
         let mut cmd = TokioCommand::new(&xmrig_path);
         cmd.current_dir(exe_dir);
         cmd.arg("--config").arg(&cfg_path); // 显式指定，双保险
@@ -63,24 +59,19 @@ impl MiningManager {
         if let Some(t) = CPU_THREADS { cmd.arg("-t").arg(t.to_string()); }
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
-
         eprintln!("[miner] launching {} with --config {}", xmrig_path.display(), cfg_path.display());
-
         let mut child = cmd.spawn().map_err(|e| format!("spawn xmrig failed: {e}"))?;
-
         // stdout 读行：解析 hashrate 与算法，并向前端广播事件
         if let Some(stdout) = child.stdout.take() {
             let last_hashrate = Arc::clone(&self.last_hashrate);
             let last_algo = Arc::clone(&self.last_algo);
             let app_for_emit = app.clone();
-
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 loop {
                     match lines.next_line().await {
                         Ok(Some(line)) => {
                             println!("{line}");
-
                             // 解析 10s hashrate
                             if let Some(pos) = line.find("speed 10s/") {
                                 let nums: Vec<f64> = line[pos..]
@@ -96,7 +87,6 @@ impl MiningManager {
                                     let _ = app_for_emit.emit("cpu_hashrate", h10);
                                 }
                             }
-
                             // 解析算法（如 algo rx/0）
                             if let Some(ai) = line.find("algo ") {
                                 let tail = &line[ai + 5..];
@@ -122,7 +112,6 @@ impl MiningManager {
                 }
             });
         }
-
         // stderr 读行（仅打印）
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
@@ -132,11 +121,9 @@ impl MiningManager {
                 }
             });
         }
-
         *child_guard = Some(child);
         Ok(())
     }
-
     // 需要在 main.rs 中调用，所以设为 pub
     pub async fn stop(&self) -> Result<(), String> {
         let mut guard = self.child.lock().await;
@@ -151,7 +138,6 @@ impl MiningManager {
             None => Err("CPU mining is not running".into()),
         }
     }
-
     async fn get_hashrate(&self) -> Option<f64> {
         self.last_hashrate.lock().await.clone()
     }
@@ -169,7 +155,6 @@ fn write_xmrig_config_into(dir: &Path) -> Result<PathBuf, String> {
     write_xmrig_config_core(&cfg_path)?;
     Ok(cfg_path)
 }
-
 // 写配置到 %TEMP%\hash_treasure\xmrig.json（备用方案）
 fn write_xmrig_config_temp() -> Result<PathBuf, String> {
     let dir = std::env::temp_dir().join("hash_treasure");
@@ -178,7 +163,6 @@ fn write_xmrig_config_temp() -> Result<PathBuf, String> {
     write_xmrig_config_core(&cfg_path)?;
     Ok(cfg_path)
 }
-
 // 仅使用配置文件配置 HTTP API / 矿池 / DNS 行为
 fn write_xmrig_config_core(cfg_path: &Path) -> Result<(), String> {
     // 主/备：端口 33333 + TLS，与 "--tls" 保持一致
@@ -192,7 +176,6 @@ fn write_xmrig_config_core(cfg_path: &Path) -> Result<(), String> {
     if let Some(w) = C3POOL_WORKER {
         pool_main["rig-id"] = json!(w);
     }
-
     let mut pool_backup = json!({
         "url": "auto.c3pool.org:33333",
         "user": C3POOL_USER,
@@ -203,7 +186,6 @@ fn write_xmrig_config_core(cfg_path: &Path) -> Result<(), String> {
     if let Some(w) = C3POOL_WORKER {
         pool_backup["rig-id"] = json!(w);
     }
-
     let config = json!({
         "autosave": true,
         "print-time": 30,
@@ -217,7 +199,6 @@ fn write_xmrig_config_core(cfg_path: &Path) -> Result<(), String> {
             "restricted": true
         }
     });
-
     fs::write(cfg_path, serde_json::to_vec_pretty(&config).unwrap()).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -228,22 +209,18 @@ fn write_xmrig_config_core(cfg_path: &Path) -> Result<(), String> {
 pub async fn start_cpu_mining(app: AppHandle, manager: State<'_, MiningManager>) -> Result<(), String> {
     manager.start(app).await
 }
-
 #[tauri::command]
 pub async fn stop_cpu_mining(manager: State<'_, MiningManager>) -> Result<(), String> {
     manager.stop().await
 }
-
 #[tauri::command]
 pub async fn get_cpu_hashrate(manager: State<'_, MiningManager>) -> Result<Option<f64>, String> {
     Ok(manager.get_hashrate().await)
 }
-
 #[tauri::command]
 pub async fn is_cpu_mining(manager: State<'_, MiningManager>) -> Result<bool, String> {
     Ok(manager.is_running().await)
 }
-
 #[tauri::command]
 pub async fn get_cpu_algo(manager: State<'_, MiningManager>) -> Result<Option<String>, String> {
     Ok(manager.get_algo().await)
@@ -253,6 +230,8 @@ pub async fn get_cpu_algo(manager: State<'_, MiningManager>) -> Result<Option<St
 fn get_token_from_store(app: &AppHandle) -> Result<String, AppError> {
     let path = PathBuf::from(STORE_PATH);
     let store = StoreBuilder::new(app, path).build()?;
+    // 重新加载数据以确保读取最新值
+    let _ = store.reload();
     match store.get("auth_token") {
         Some(v) if v.is_string() => Ok(v.as_str().unwrap().to_string()),
         _ => Err(AppError::ApiError("Not logged in".to_string())),
@@ -260,18 +239,15 @@ fn get_token_from_store(app: &AppHandle) -> Result<String, AppError> {
 }
 fn save_token(app: &AppHandle, token: &str) -> Result<(), AppError> {
     let path = PathBuf::from(STORE_PATH);
-    let mut store = StoreBuilder::new(app, path).build()?;
-    store.set(
-        "auth_token".to_string(),
-        serde_json::Value::String(token.to_string()),
-    );
+    let store = StoreBuilder::new(app, path).build()?;
+    store.set("auth_token", serde_json::Value::String(token.to_string()));
     store.save()?;
     Ok(())
 }
 fn remove_token(app: &AppHandle) -> Result<(), AppError> {
     let path = PathBuf::from(STORE_PATH);
-    let mut store = StoreBuilder::new(app, path).build()?;
-    let _ = store.delete("auth_token".to_string());
+    let store = StoreBuilder::new(app, path).build()?;
+    let _ = store.delete("auth_token");
     store.save()?;
     Ok(())
 }
@@ -284,7 +260,7 @@ pub async fn login(
     api_client: State<'_, ApiClient>,
 ) -> Result<String, AppError> {
     log::info!("Attempting to login for user: {}", email);
-    let payload = UserLoginDTO { email, userPassword: password };
+    let payload = UserLoginDTO { email, user_password: password };
     let response: UserLoginVO = api_client.login(&payload).await?;
     if let Some(token) = response.token {
         save_token(&app, &token)?;
@@ -293,7 +269,6 @@ pub async fn login(
         Err(AppError::ApiError("Login success but no token received".to_string()))
     }
 }
-
 #[tauri::command]
 pub async fn login_by_code(
     email: String,
@@ -311,7 +286,6 @@ pub async fn login_by_code(
         Err(AppError::ApiError("Login success but no token received".to_string()))
     }
 }
-
 #[tauri::command]
 pub async fn register(
     username: String,
@@ -345,7 +319,6 @@ pub async fn register(
         Err(AppError::ApiError("Register success but no token received".to_string()))
     }
 }
-
 #[tauri::command]
 pub async fn send_code(
     email: String,
@@ -356,12 +329,10 @@ pub async fn send_code(
     let payload = SendCodeDTO { email, r#type };
     api_client.send_code(&payload).await
 }
-
 #[tauri::command]
 pub async fn get_auth_token(app: AppHandle) -> Result<Option<String>, AppError> {
     Ok(get_token_from_store(&app).ok())
 }
-
 #[tauri::command]
 pub async fn logout(app: AppHandle) -> Result<(), AppError> {
     log::info!("User logging out");

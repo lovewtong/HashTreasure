@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct UserLoginDTO {
     pub email: String,
-    pub userPassword: String,
+    pub user_password: String,
 }
 
 /// 邮箱验证码登录请求体

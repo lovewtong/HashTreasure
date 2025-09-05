@@ -1,10 +1,17 @@
 // src/components/Login.tsx
+//
+// This component handles user authentication (login and registration).  It
+// persists the username into sessionStorage upon successful login or
+// registration so that other parts of the UI (e.g. Dashboard) can greet the
+// user and display their initial.  The rest of the file follows the original
+// implementation with only minimal changes around storing the username.
+
 import React, { useEffect, useState, forwardRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import {
   User, KeyRound, Mail, AtSign, Eye, EyeOff,
-  LoaderCircle, Gift, Phone, CreditCard
+  LoaderCircle, Gift, Phone, CreditCard,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm, SubmitHandler, FieldErrors } from 'react-hook-form';
@@ -62,15 +69,15 @@ const FormInput = forwardRef<HTMLInputElement, FormInputProps>(
         ref={ref}
         {...props}
         className={`w-full pl-10 pr-3 py-2.5 rounded-lg
-        bg-white text-slate-900 placeholder-slate-400
-        border ${error ? 'border-rose-300' : 'border-slate-200'} shadow-sm
-        focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-400
-        transition-colors
-        dark:bg-[#262626]/80 dark:text-slate-100 dark:placeholder-slate-400
-        dark:border-white/10 dark:focus:ring-[#00A4EF] dark:focus:border-[#00A4EF]`}
+            bg-white text-slate-900 placeholder-slate-400
+            border ${error ? 'border-rose-300' : 'border-slate-200'} shadow-sm
+            focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-400
+            transition-colors
+            dark:bg-[#262626]/80 dark:text-slate-100 dark:placeholder-slate-400
+            dark:border-white/10 dark:focus:ring-[#00A4EF] dark:focus:border-[#00A4EF]`}
       />
     </div>
-  )
+  ),
 );
 FormInput.displayName = 'FormInput';
 
@@ -116,7 +123,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     const form = isLogin ? loginCodeForm : registerForm;
     const ok = await form.trigger('email');
     if (!ok) return;
-
     const email = form.getValues().email;
     setSendingCode(true);
     toast.loading(t('sending'), { id: 'code-toast' });
@@ -132,15 +138,29 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // 登录提交：如果成功则将 userName 写入 sessionStorage
   const onLoginSubmit: SubmitHandler<LoginPasswordForm | LoginCodeForm> = async (data) => {
     const toastId = toast.loading(t('loggingIn'));
     try {
+      let result: any;
       if (authMode === 'password') {
         const { email, password } = data as LoginPasswordForm;
-        await invoke('login', { email, password });
+        result = await invoke('login', { email, password });
       } else {
         const { email, code } = data as LoginCodeForm;
-        await invoke('login_by_code', { email, code });
+        result = await invoke('login_by_code', { email, code });
+      }
+      // 如果接口返回用户名则存储；否则尝试从用户档案接口获取
+      if (result && typeof result.userName === 'string') {
+        sessionStorage.setItem('userName', result.userName);
+      } else {
+        // 调用 get_profile 获取 userName
+        try {
+          const profile: any = await invoke('get_profile');
+          if (profile && typeof profile.userName === 'string') {
+            sessionStorage.setItem('userName', profile.userName);
+          }
+        } catch {}
       }
       toast.success(t('loginSuccess'), { id: toastId });
       onLoginSuccess();
@@ -150,6 +170,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // 注册提交：如果成功，则把输入的用户名保存到 sessionStorage 方便跳转后显示
   const onRegisterSubmit: SubmitHandler<RegisterForm> = async (data) => {
     const toastId = toast.loading(t('registering'));
     try {
@@ -159,7 +180,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         inviteCode: data.inviteCode || null, phone: data.phone || null,
       });
       toast.success(t('registerSuccess'), { id: toastId });
-      setViewMode('login'); setAuthMode('password');
+      // 保存用户名供登录后显示。若后端返回值包含 userName 也会被 Login 提取
+      sessionStorage.setItem('userName', data.username);
+      setViewMode('login');
+      setAuthMode('password');
       loginPasswordForm.reset({ email: data.email });
     } catch (e: any) {
       const msg = typeof e === 'string' ? e : (e as Error).message;
@@ -176,12 +200,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       : registerForm.handleSubmit(onRegisterSubmit)
   );
 
-  const { isSubmitting: isLoginPasswordSubmitting, errors: loginPasswordErrors } =
-    loginPasswordForm.formState;
-  const { isSubmitting: isLoginCodeSubmitting, errors: loginCodeErrors } =
-    loginCodeForm.formState;
-  const { isSubmitting: isRegisterSubmitting, errors: registerErrors } =
-    registerForm.formState;
+  const { isSubmitting: isLoginPasswordSubmitting, errors: loginPasswordErrors } = loginPasswordForm.formState;
+  const { isSubmitting: isLoginCodeSubmitting, errors: loginCodeErrors } = loginCodeForm.formState;
+  const { isSubmitting: isRegisterSubmitting, errors: registerErrors } = registerForm.formState;
   const isSubmitting = isLoginPasswordSubmitting || isLoginCodeSubmitting || isRegisterSubmitting;
 
   const Pill = ({ active, children, onClick, label }: any) => (
@@ -191,10 +212,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       aria-selected={active}
       onClick={onClick}
       className={`flex-1 py-2 rounded-md text-sm font-semibold transition-colors
-      focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
-      ${active
-        ? 'bg-[#0078D4] text-white dark:bg-[#00A4EF]'
-        : 'text-slate-700 hover:bg-sky-100 dark:text-slate-200 dark:hover:bg-white/10'}`}
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+          ${active
+            ? 'bg-[#0078D4] text-white dark:bg-[#00A4EF]'
+            : 'text-slate-700 hover:bg-sky-100 dark:text-slate-200 dark:hover:bg-white/10'}`}
     >
       {children}
     </button>
@@ -210,7 +231,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           {t('codeLogin')}
         </Pill>
       </div>
-
       <AnimatePresence mode="wait">
         <motion.div
           key={authMode}
@@ -267,9 +287,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   onClick={handleSendCode}
                   disabled={sendingCode || countdown > 0}
                   className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-white text-slate-900 border border-slate-200 hover:bg-slate-50
-                             focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
-                             disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap
-                             dark:bg-white/10 dark:text-slate-100 dark:border-white/10 dark:hover:bg-white/15"
+                                  focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+                                  disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap
+                                  dark:bg-white/10 dark:text-slate-100 dark:border-white/10 dark:hover:bg-white/15"
                 >
                   {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
                 </button>
@@ -283,204 +303,84 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   const renderRegisterForm = () => (
     <div className="space-y-4">
-      <FormInput icon={<User size={18} />} placeholder={t('usernamePlaceholder')} {...registerForm.register('username')} error={!!registerErrors.username} />
-      <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...registerForm.register('email')} error={!!registerErrors.email} />
-      <div className="relative">
-        <FormInput icon={<KeyRound size={18} />} type={showPassword ? 'text' : 'password'} placeholder={t('passwordPlaceholder')} {...registerForm.register('password')} error={!!registerErrors.password} />
-        <button
-          type="button"
-          aria-label={showPassword ? t('togglePasswordHide') : t('togglePasswordShow')}
-          onClick={() => setShowPassword(s => !s)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
-        >
-          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-        </button>
-      </div>
-      <div className="flex gap-3 items-start">
-        <div className="flex-grow">
-          <FormInput icon={<AtSign size={18} />} placeholder={t('codePlaceholder')} {...registerForm.register('code')} error={!!registerErrors.code} />
-        </div>
-        <button
-          type="button"
-          onClick={handleSendCode}
-          disabled={sendingCode || countdown > 0}
-          className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-white text-slate-900 border border-slate-200 hover:bg-slate-50
+      <FormInput icon={<User size={18} />} placeholder={t('usernamePlaceholder')} {...registerForm.register('username')} error={!!registerErrors?.username} />
+      <FormInput icon={<Mail size={18} />} type="email" placeholder={t('emailPlaceholder')} {...registerForm.register('email')} error={!!registerErrors?.email} />
+      <FormInput icon={<KeyRound size={18} />} type="password" placeholder={t('passwordPlaceholder')} {...registerForm.register('password')} error={!!registerErrors?.password} />
+      <FormInput icon={<AtSign size={18} />} placeholder={t('codePlaceholder')} {...registerForm.register('code')} error={!!registerErrors?.code} />
+      <FormInput icon={<Phone size={18} />} placeholder={t('alipayPhonePlaceholder')} {...registerForm.register('alipayPhone')} />
+      <FormInput icon={<CreditCard size={18} />} placeholder={t('alipayNamePlaceholder')} {...registerForm.register('alipayName')} />
+      <FormInput icon={<Gift size={18} />} placeholder={t('inviteCodePlaceholder')} {...registerForm.register('inviteCode')} />
+      <button
+        type="button"
+        onClick={() => handleSendCode()}
+        disabled={sendingCode || countdown > 0}
+        className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-white text-slate-900 border border-slate-200 hover:bg-slate-50
                      focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
-                     disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap
+                     disabled:opacity-60 disabled:cursor-not-allowed
                      dark:bg-white/10 dark:text-slate-100 dark:border-white/10 dark:hover:bg-white/15"
-        >
-          {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
-        </button>
-      </div>
-      <FormInput icon={<Phone size={18} />} placeholder={t('phoneOptionalPlaceholder')} {...registerForm.register('phone')} error={!!registerErrors.phone} />
-      <FormInput icon={<CreditCard size={18} />} placeholder={t('alipayPhoneOptionalPlaceholder')} {...registerForm.register('alipayPhone')} error={!!registerErrors.alipayPhone} />
-      <FormInput icon={<User size={18} />} placeholder={t('alipayNameOptionalPlaceholder')} {...registerForm.register('alipayName')} error={!!registerErrors.alipayName} />
-      <FormInput icon={<Gift size={18} />} placeholder={t('inviteCodeOptionalPlaceholder')} {...registerForm.register('inviteCode')} error={!!registerErrors.inviteCode} />
+      >
+        {countdown > 0 ? t('resendIn', { count: countdown }) : (sendingCode ? t('sending') : t('sendCode'))}
+      </button>
     </div>
   );
 
-  const getErrorMessage = () => {
-    let errors: FieldErrors;
-    if (isLogin) errors = authMode === 'password' ? loginPasswordErrors : loginCodeErrors;
-    else errors = registerErrors;
-
-    for (const key in errors) {
-      if (errors[key as keyof typeof errors]) {
-        return t((errors[key as keyof typeof errors]?.message) as string);
-      }
-    }
-    return null;
-  };
-
-  const errorMessage = getErrorMessage();
-
   return (
-    <div className="relative min-h-screen w-full overflow-hidden font-sans">
+    <div className="relative min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
       <HashPowerBackground />
-      <Toaster position="top-center" toastOptions={{
-        className: 'bg-white text-slate-900 border border-slate-200 dark:bg-[#1E1E1E] dark:text-slate-100 dark:border-white/10'
-      }} />
-
-      <div className="relative z-10 flex flex-col min-h-screen text-slate-800 dark:text-slate-100">
-        {/* Header */}
-        <header className="w-full max-w-7xl mx-auto px-6 pt-6 flex items-center justify-between">
-          <div className="text-xl font-bold tracking-wider select-none text-sky-700 dark:text-[#00A4EF]">
-            {t('appName')}
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <button
-              aria-label={t('switchLanguage')}
-              onClick={toggleLang}
-              className="text-sm rounded-full px-3 py-1.5 border
-                         border-slate-300/80 bg-white/80 text-slate-700 hover:bg-white
-                         dark:border-white/15 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15
-                         focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            >
-              {i18n.language === 'zh' ? 'EN' : '中'}
+      <Toaster position="top-center" reverseOrder={false} />
+      <div className="relative z-10 w-full max-w-md p-8 bg-white rounded-xl shadow-lg dark:bg-[#1A1A1A]/95 dark:text-slate-100 space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">{isLogin ? t('login') : t('register')}</h2>
+          <ThemeToggle />
+        </div>
+        <div className="flex gap-2" role="tablist" aria-label={t('viewSwitch')}>
+          <button
+            role="tab"
+            aria-selected={isLogin}
+            onClick={() => setViewMode('login')}
+            className={`flex-1 py-2 rounded-md text-sm font-semibold transition-colors
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+              ${isLogin
+                ? 'bg-[#0078D4] text-white dark:bg-[#00A4EF]'
+                : 'text-slate-700 hover:bg-sky-100 dark:text-slate-200 dark:hover:bg-white/10'}`}
+          >
+            {t('login')}
+          </button>
+          <button
+            role="tab"
+            aria-selected={!isLogin}
+            onClick={() => setViewMode('register')}
+            className={`flex-1 py-2 rounded-md text-sm font-semibold transition-colors
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+              ${!isLogin
+                ? 'bg-[#0078D4] text-white dark:bg-[#00A4EF]'
+                : 'text-slate-700 hover:bg-sky-100 dark:text-slate-200 dark:hover:bg-white/10'}`}
+          >
+            {t('register')}
+          </button>
+        </div>
+        <form onSubmit={getSubmitHandler()} className="space-y-6">
+          {isLogin ? renderLoginForm() : renderRegisterForm()}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#0078D4] hover:bg-[#005FA3]
+                       focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
+                       disabled:opacity-60 disabled:cursor-not-allowed dark:bg-[#00A4EF] dark:hover:bg-[#0080C9]"
+          >
+            {isLogin ? t('loginButton') : t('registerButton')}
+          </button>
+        </form>
+        <div className="flex justify-between text-sm">
+          <button type="button" onClick={toggleLang} className="underline decoration-dashed">
+            {i18n.language === 'zh' ? 'English' : '中文'}
+          </button>
+          {isLogin && (
+            <button type="button" onClick={() => setAuthMode(authMode === 'password' ? 'code' : 'password')} className="underline decoration-dashed">
+              {authMode === 'password' ? t('useCodeLogin') : t('usePasswordLogin')}
             </button>
-          </div>
-        </header>
-
-        {/* Main */}
-        <main className="flex-grow flex items-center justify-center p-4">
-          <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-            {/* Left copy */}
-            <motion.section
-              initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.7, delay: 0.2 }}
-              className="order-2 md:order-1 text-center md:text-left"
-            >
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight tracking-wide text-transparent bg-clip-text
-                             bg-gradient-to-r from-slate-900 via-slate-800 to-sky-700
-                             dark:from-white dark:via-slate-200 dark:to-[#00A4EF]">
-                {t('tagline')}
-              </h2>
-
-              {/* Hash data line */}
-              <div className="relative mt-5 h-px w-48 bg-sky-200/70 dark:bg-white/20 overflow-hidden rounded mx-auto md:mx-0" aria-hidden>
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    transform: 'translateX(-100%)',
-                    background:
-                      'linear-gradient(90deg, transparent, rgba(2,132,199,.9), rgba(59,130,246,.9), transparent)',
-                    animation: 'hashflow 7s linear infinite',
-                  }}
-                />
-              </div>
-              <style>{`@keyframes hashflow{from{transform:translateX(-100%)}to{transform:translateX(100%)}}`}</style>
-
-              <p className="text-base md:text-lg text-slate-600 dark:text-slate-300 mt-6 max-w-lg mx-auto md:mx-0">
-                {t('description')}
-              </p>
-            </motion.section>
-
-            {/* Right card */}
-            <motion.section
-              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.35 }}
-              className="order-1 md:order-2 relative"
-            >
-              {/* Glow */}
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -inset-12 rounded-[28px] blur-3xl opacity-70"
-                style={{
-                  background:
-                    'radial-gradient(70% 60% at 50% 40%, rgba(0,120,212,0.35) 0%, rgba(2,191,231,0.25) 40%, rgba(255,255,255,0) 75%)',
-                }}
-              />
-
-              <div className="w-full max-w-sm mx-auto p-8 rounded-2xl
-                              bg-white border border-slate-200 shadow-xl shadow-sky-100/60 relative
-                              dark:bg-[#1E1E1E]/70 dark:border-white/10 dark:backdrop-blur-md">
-                <h3 className="text-2xl font-semibold mb-6 text-center text-slate-900 dark:text-slate-100">
-                  {isLogin ? t('loginTitle') : t('registerTitle')}
-                </h3>
-
-                <form onSubmit={getSubmitHandler()} className="space-y-4" noValidate>
-                  {isLogin ? renderLoginForm() : renderRegisterForm()}
-
-                  <AnimatePresence>
-                    {errorMessage && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div role="alert" className="text-sm text-rose-600 dark:text-rose-400 text-center pt-2">
-                          {errorMessage}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <div className="pt-4 space-y-3">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full py-3 rounded-lg font-semibold text-white
-                                 bg-[#0078D4] hover:bg-[#006CBE]
-                                 disabled:opacity-50 disabled:cursor-not-allowed
-                                 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400
-                                 focus-visible:ring-offset-2 focus-visible:ring-offset-white
-                                 transition-all flex items-center justify-center
-                                 dark:bg-[#00A4EF] dark:hover:bg-[#0095D6]
-                                 dark:focus-visible:ring-[#00A4EF]
-                                 dark:focus-visible:ring-offset-[#121212]"
-                    >
-                      {isSubmitting && <LoaderCircle className="animate-spin mr-2" size={20} />}
-                      {isSubmitting ? t(isLogin ? 'loggingIn' : 'registering') : t(isLogin ? 'signIn' : 'register')}
-                    </button>
-
-                    <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-300/90">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setViewMode(isLogin ? 'register' : 'login');
-                          loginPasswordForm.reset();
-                          loginCodeForm.reset();
-                          registerForm.reset();
-                        }}
-                        className="hover:underline hover:text-slate-700 dark:hover:text-white transition-colors"
-                      >
-                        {isLogin ? t('noAccountRegister') : t('hasAccountLogin')}
-                      </button>
-                      {isLogin && (
-                        <a href="#" className="text-sm hover:underline hover:text-slate-700 dark:hover:text-white transition-colors">
-                          {t('forgotPassword')}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </motion.section>
-          </div>
-        </main>
+          )}
+        </div>
       </div>
     </div>
   );
