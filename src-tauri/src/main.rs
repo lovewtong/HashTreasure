@@ -5,6 +5,7 @@ mod api;
 mod commands;
 mod error;
 mod models;
+mod device;
 
 use crate::commands::MiningManager;
 use tauri::{Manager, WindowEvent};
